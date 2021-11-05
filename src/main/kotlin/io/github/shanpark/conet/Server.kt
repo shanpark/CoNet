@@ -6,14 +6,25 @@ import io.ktor.network.sockets.*
 import kotlinx.coroutines.Dispatchers
 import java.net.InetSocketAddress
 
-class Server {
+class Server(private val pipeline: EventPipeline) {
     val dispatcher = Dispatchers.IO
     val selector: ActorSelectorManager = ActorSelectorManager(dispatcher)
     val tcpSocketBuilder: TcpSocketBuilder = aSocket(selector).tcp()
 
-    fun start(address: InetSocketAddress) {
-        val serverTask = ServerTask(tcpSocketBuilder)
-        val service = CoroutineService()
-        service.start(serverTask)
+    private var service: CoroutineService? = null
+
+    fun start(address: InetSocketAddress): Server {
+        val serverTask = ServerTask(tcpSocketBuilder, pipeline, address)
+        service = CoroutineService()
+        service!!.start(serverTask)
+        return this
+    }
+
+    fun stop() {
+        service?.stop()
+    }
+
+    fun await(millis: Long = 0) {
+        service?.await(millis)
     }
 }

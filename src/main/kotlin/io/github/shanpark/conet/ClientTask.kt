@@ -2,23 +2,24 @@ package io.github.shanpark.conet
 
 import io.github.shanpark.services.coroutine.CoTask
 import io.github.shanpark.services.signal.Signal
-import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
+import java.net.InetSocketAddress
 
-class ClientTask(private val client: Socket, private val pipeline: EventPipeline): CoTask {
-    private var context = Context(client.openReadChannel(), client.openWriteChannel())
+class ClientTask(private val socketBuilder: TcpSocketBuilder, private val pipeline: EventPipeline, private val address: InetSocketAddress): CoTask {
+    private lateinit var connectionTask: ConnectionTask
 
     override suspend fun init() {
+        val socket = socketBuilder.connect(address)
 
-        pipeline.onConnectedHandlers.foreach { it.invoke(context) }
-
+        connectionTask = ConnectionTask(socket, pipeline)
+        connectionTask.init()
     }
 
     override suspend fun run(stopSignal: Signal) {
+        connectionTask.run(stopSignal)
     }
 
     override suspend fun uninit() {
-        client.dispose()
-        pipeline.onClosedHandlers.foreach { it.invoke(context) }
+        connectionTask.uninit()
     }
 }

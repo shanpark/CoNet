@@ -6,7 +6,7 @@ import io.github.shanpark.services.signal.Signal
 import io.ktor.network.sockets.*
 import java.net.InetSocketAddress
 
-class ServerTask(private val socketBuilder: TcpSocketBuilder, private val address: InetSocketAddress): CoTask {
+class ServerTask(private val socketBuilder: TcpSocketBuilder, private val pipeline: EventPipeline, private val address: InetSocketAddress): CoTask {
 
     private lateinit var serverSocket: ServerSocket
 
@@ -15,11 +15,14 @@ class ServerTask(private val socketBuilder: TcpSocketBuilder, private val addres
     }
 
     override suspend fun run(stopSignal: Signal) {
-        while (!stopSignal.isSignalled()) {
+        while (true) {
             val socket = serverSocket.accept()
-            val clientTask = ClientTask(socket, pipeline)
+            if (stopSignal.isSignalled())
+                break
+
+            val connectionTask = ConnectionTask(socket, pipeline)
             val service = CoroutineService()
-            service.start(clientTask)
+            service.start(connectionTask)
         }
     }
 
