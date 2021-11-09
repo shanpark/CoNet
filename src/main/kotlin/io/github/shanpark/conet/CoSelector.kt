@@ -1,7 +1,6 @@
 package io.github.shanpark.conet
 
 import kotlinx.coroutines.runBlocking
-import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 
 object CoSelector {
@@ -9,6 +8,10 @@ object CoSelector {
         startSelector()
     }
 
+    /**
+     * CoSelectable 객체를 관심 key와 함께 CoSelector에 등록한다.
+     * 관심 key 이벤트가 발생하면 CoSelectable 객체의 selected()가 호출될 것이다.
+     */
     fun register(selectable: CoSelectable, interestKeys: Int) {
         selectable.channel.register(selector, interestKeys, selectable)
     }
@@ -18,18 +21,20 @@ object CoSelector {
 
         Thread {
             runBlocking {
-                selector.select()
-                val keys = selector.selectedKeys().iterator()
-                while (keys.hasNext()) {
-                    val key = keys.next() as SelectionKey
-                    keys.remove()
-
-                    @Suppress("UNCHECKED_CAST")
-                    if (key.isValid)
-                        (key.attachment() as CoSelectable).selected(key.readyOps())
+                while (true) {
+                    selector.select()
+                    val selectedKeys = selector.selectedKeys()
+                    for (key in selectedKeys) {
+                        if (key.isValid) {
+                            val selectable = (key.attachment() as CoSelectable)
+                            val keyObject = selectable.handleKey(key.readyOps()) // on thread
+                            selectable.handleKeyObject(keyObject) // on coroutine
+                        }
+                    }
+                    selectedKeys.clear()
                 }
             }
-        }
+        }.start()
 
         return selector
     }

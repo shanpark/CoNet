@@ -5,5 +5,6 @@ import java.nio.channels.SelectableChannel
 interface CoSelectable {
     val channel: SelectableChannel
 
-    suspend fun selected(readyOps: Int)
+    fun handleKey(readyOps: Int): Any?
+    suspend fun handleKeyObject(obj: Any?)
 }
