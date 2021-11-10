@@ -98,7 +98,7 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
      * 이 메소드가 호출되는 시점은 이미 readBuffer에 값이 들어와 있는 상태이다.
      */
     private suspend fun onRead(buffer: Buffer) {
-//        readBuffer.write(buffer)
+        readBuffer.write(buffer)
 
         while (true) {
             val readableBytes = readBuffer.readableBytes

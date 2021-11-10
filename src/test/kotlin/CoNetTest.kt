@@ -1,5 +1,7 @@
+import io.github.shanpark.buffers.ReadBuffer
 import io.github.shanpark.conet.CoPipeline
 import io.github.shanpark.conet.CoServer
+import io.github.shanpark.conet.util.log
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
@@ -14,7 +16,8 @@ class CoNetTest {
             println("Server OnConnected()")
         }
         serverPipeline.addOnRead { context, inObj ->
-            println("Server OnRead()")
+            val buffer = (inObj as ReadBuffer)
+            log("Server OnRead() - ${buffer.readString(buffer.readableBytes)}")
             return@addOnRead null
         }
         serverPipeline.addOnWrite { context, outObj ->
