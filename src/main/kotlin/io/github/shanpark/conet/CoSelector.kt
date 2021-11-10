@@ -32,7 +32,7 @@ object CoSelector {
                     log("CoSelector.selector.select()")
                     CoSelector.selector.select()
 
-                    val it = selector.selectedKeys().iterator()
+                    val it = CoSelector.selector.selectedKeys().iterator()
                     while (it.hasNext()) {
                         val key = it.next()
                         it.remove()

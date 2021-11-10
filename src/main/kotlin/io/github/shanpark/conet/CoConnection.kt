@@ -12,9 +12,10 @@ import java.nio.channels.SocketChannel
 class CoConnection(override val channel: SocketChannel, private val pipeline: CoPipeline): CoSelectable {
 
     companion object {
-        const val READ = 1
-        const val WRITE = 2
-        const val CLOSED = 3
+        const val CONNECTED = 1
+        const val READ = 2
+        const val WRITE = 3
+        const val CLOSED = 4
     }
 
     class Event(val type: Int, val param: Any? = null)
@@ -23,6 +24,8 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
 
     private var task: EventLoopCoTask<Event> = EventLoopCoTask(this::onEvent, 1000, this::onIdle)
     private val service: CoroutineService
+
+    private val readBuffer: Buffer = Buffer()
 
     private var outObjs: MutableList<Any> = mutableListOf()
     private val buffers = mutableListOf<ReadBuffer>()
@@ -61,7 +64,7 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
     }
 
     private suspend fun handleReadable() {
-        val buffer = Buffer()
+        val buffer = Buffer() // TODO 항상 새로 할당되는데 이렇게하면 garbage가 넘치게 됨.
         val read = internalRead(buffer) // Key에서 OP_READ를 없애주기 위해서는 여기서 모두 읽어들어야 한다.
         if (read >= 0)
             task.sendEvent(Event(READ, buffer))
@@ -75,21 +78,43 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
     }
 
     private suspend fun handleConnectable() {
+        task.sendEvent(Event(CONNECTED))
     }
 
-    private fun onEvent(event: Event) {
+    private suspend fun onEvent(event: Event) {
         when (event.type) {
+            CONNECTED -> onConnected()
             READ -> onRead(event.param as Buffer)
             WRITE -> {}
             CLOSED -> onClosed()
         }
     }
 
+    private suspend fun onConnected() {
+        log("onConnected()")
+    }
+
     /**
      * 이 메소드가 호출되는 시점은 이미 readBuffer에 값이 들어와 있는 상태이다.
      */
-    private fun onRead(buffer: Buffer) {
-        log(buffer.readString(buffer.readableBytes))
+    private suspend fun onRead(buffer: Buffer) {
+//        readBuffer.write(buffer)
+
+        while (true) {
+            val readableBytes = readBuffer.readableBytes
+
+            var inObj: Any? = readBuffer
+            for (handler in pipeline.onReadHandlers) {
+                inObj = handler.invoke(this, inObj!!)
+                if (inObj == null)
+                    break
+            }
+
+            if (!readBuffer.isReadable || (readBuffer.readableBytes == readableBytes))
+                break // all or nothing used.
+        }
+
+        readBuffer.compact() // marked state is invalidated
     }
 
     private fun onWrite() {
