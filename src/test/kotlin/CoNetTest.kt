@@ -1,4 +1,3 @@
-import io.github.shanpark.conet.CoConnection
 import io.github.shanpark.conet.CoPipeline
 import io.github.shanpark.conet.CoServer
 import org.junit.jupiter.api.DisplayName
