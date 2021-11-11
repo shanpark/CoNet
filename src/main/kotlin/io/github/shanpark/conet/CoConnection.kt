@@ -10,7 +10,6 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 
 class CoConnection(override val channel: SocketChannel, private val pipeline: CoPipeline): CoSelectable {
-
     companion object {
         const val CONNECTED = 1
         const val READ = 2
@@ -18,12 +17,10 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
         const val CLOSED = 4
     }
 
-    class Event(val type: Int, val param: Any? = null)
-
     override lateinit var selectionKey: SelectionKey
 
-    private var task: EventLoopCoTask<Event> = EventLoopCoTask(this::onEvent, 1000, this::onIdle)
-    private val service: CoroutineService
+    private var task = EventLoopCoTask(this::onEvent, 1000, this::onIdle)
+    private val service = CoroutineService().start(task)
 
     private val readBuffer: Buffer = Buffer()
 
@@ -32,9 +29,6 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
 
     init {
         channel.configureBlocking(false)
-
-        service = CoroutineService()
-        service.start(task)
     }
 
 //    fun write(outObj: Any) {
@@ -64,27 +58,21 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
     }
 
     private suspend fun handleReadable() {
-        val buffer = Buffer() // TODO 항상 새로 할당되는데 이렇게하면 garbage가 넘치게 됨.
-        val read = internalRead(buffer) // Key에서 OP_READ를 없애주기 위해서는 여기서 모두 읽어들어야 한다.
-        if (read >= 0)
-            task.sendEvent(Event(READ, buffer))
-        else {
-            close()
-            task.sendEvent(Event(CLOSED))
-        }
+        selectionKey.interestOps(selectionKey.interestOps() and SelectionKey.OP_READ.inv()) // OP_READ off. wakeup은 필요없다.
+        task.sendEvent(READ)
     }
 
     private suspend fun handleWritable() {
     }
 
     private suspend fun handleConnectable() {
-        task.sendEvent(Event(CONNECTED))
+        task.sendEvent(CONNECTED)
     }
 
-    private suspend fun onEvent(event: Event) {
-        when (event.type) {
+    private suspend fun onEvent(event: Int) {
+        when (event) {
             CONNECTED -> onConnected()
-            READ -> onRead(event.param as Buffer)
+            READ -> onRead()
             WRITE -> {}
             CLOSED -> onClosed()
         }
@@ -94,27 +82,30 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
         log("onConnected()")
     }
 
-    /**
-     * 이 메소드가 호출되는 시점은 이미 readBuffer에 값이 들어와 있는 상태이다.
-     */
-    private suspend fun onRead(buffer: Buffer) {
-        readBuffer.write(buffer)
+    private suspend fun onRead() {
+        val read = internalRead(readBuffer) // read from socket.
+        if (read >= 0) {
+            while (true) {
+                val readableBytes = readBuffer.readableBytes
 
-        while (true) {
-            val readableBytes = readBuffer.readableBytes
+                var inObj: Any? = readBuffer
+                for (handler in pipeline.onReadHandlers) {
+                    inObj = handler.invoke(this, inObj!!)
+                    if (inObj == null)
+                        break
+                }
 
-            var inObj: Any? = readBuffer
-            for (handler in pipeline.onReadHandlers) {
-                inObj = handler.invoke(this, inObj!!)
-                if (inObj == null)
-                    break
+                if (!readBuffer.isReadable || (readBuffer.readableBytes == readableBytes))
+                    break // all or nothing used.
             }
+            readBuffer.compact() // marked state is invalidated
 
-            if (!readBuffer.isReadable || (readBuffer.readableBytes == readableBytes))
-                break // all or nothing used.
+            selectionKey.interestOps(selectionKey.interestOps() or SelectionKey.OP_READ) // OP_READ on
+            CoSelector.wakeup() // 여기서는 wakeup 필요.
+        } else {
+            close()
+            task.sendEvent(CLOSED)
         }
-
-        readBuffer.compact() // marked state is invalidated
     }
 
     private fun onWrite() {

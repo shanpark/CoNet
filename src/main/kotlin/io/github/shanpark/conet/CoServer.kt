@@ -9,7 +9,7 @@ import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 
 class CoServer(private val pipeline: CoPipeline): CoSelectable {
-    override val channel: ServerSocketChannel = ServerSocketChannel.open()
+    override var channel: ServerSocketChannel = ServerSocketChannel.open()
     override lateinit var selectionKey: SelectionKey
 
     private lateinit var task: EventLoopCoTask<SocketChannel>
@@ -20,6 +20,7 @@ class CoServer(private val pipeline: CoPipeline): CoSelectable {
     }
 
     fun start(address: InetSocketAddress): CoServer {
+        // TODO start()가 두번 호출된다면?
         channel.bind(address)
         CoSelector.register(this, SelectionKey.OP_ACCEPT)
 

@@ -23,6 +23,10 @@ object CoSelector {
         selector.wakeup()
     }
 
+    fun wakeup() {
+        selector.wakeup()
+    }
+
     private fun startSelector(): Selector {
         val selector = Selector.open()
 
