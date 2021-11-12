@@ -20,13 +20,14 @@ class CoServer(private val pipeline: CoPipeline): CoSelectable {
     }
 
     fun start(address: InetSocketAddress): CoServer {
-        // TODO start()가 두번 호출된다면?
-        channel.bind(address)
-        CoSelector.register(this, SelectionKey.OP_ACCEPT)
+        if (!service.isRunning()) {
+            channel.bind(address)
+            CoSelector.register(this, SelectionKey.OP_ACCEPT)
 
-        task = EventLoopCoTask(this::onAccepted, 1000L, this::onIdle)
-        service = CoroutineService()
-        service.start(task)
+            task = EventLoopCoTask(this::onAccepted, 1000L, this::onIdle)
+            service = CoroutineService()
+            service.start(task)
+        }
         return this
     }
 
@@ -38,10 +39,11 @@ class CoServer(private val pipeline: CoPipeline): CoSelectable {
         }
     }
 
-    private fun onAccepted(socketChannel: SocketChannel) {
+    private suspend fun onAccepted(socketChannel: SocketChannel) {
         log("CoServer.onAccepted()")
         val connection = CoConnection(socketChannel, pipeline)
         CoSelector.register(connection, SelectionKey.OP_READ)
+        connection.start() // connection start.
     }
 
     private fun onIdle() {

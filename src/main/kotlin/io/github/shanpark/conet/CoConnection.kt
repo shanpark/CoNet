@@ -5,6 +5,8 @@ import io.github.shanpark.buffers.ReadBuffer
 import io.github.shanpark.conet.util.log
 import io.github.shanpark.services.coroutine.CoroutineService
 import io.github.shanpark.services.coroutine.EventLoopCoTask
+import off
+import on
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
@@ -31,12 +33,23 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
         channel.configureBlocking(false)
     }
 
-//    fun write(outObj: Any) {
-//        outObjs.add(outObj)
-//    }
+    suspend fun start() {
+        task.sendEvent(CONNECTED)
+    }
+
+    fun write(outObj: Any) {
+        if (channel.isOpen) {
+            if (outObj is ReadBuffer)
+                outObjs.add(outObj.readSlice(outObj.readableBytes))
+            else
+                outObjs.add(outObj)
+
+            selectionKey.on(SelectionKey.OP_WRITE)
+            CoSelector.wakeup()
+        } // if closed, ignore
+    }
 
     fun close() {
-        selectionKey.cancel()
         channel.close()
     }
 
@@ -52,28 +65,30 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
             handleReadable()
         } else if (key.isWritable) {
             handleWritable()
-        } else if (key.isConnectable) {
-            handleConnectable()
+//        } else if (key.isConnectable) {
+//            handleConnectable()
         }
     }
 
     private suspend fun handleReadable() {
-        selectionKey.interestOps(selectionKey.interestOps() and SelectionKey.OP_READ.inv()) // OP_READ off. wakeup은 필요없다.
+        selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
         task.sendEvent(READ)
     }
 
     private suspend fun handleWritable() {
+        selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
+        task.sendEvent(WRITE)
     }
 
-    private suspend fun handleConnectable() {
-        task.sendEvent(CONNECTED)
-    }
+//    private suspend fun handleConnectable() {
+//        task.sendEvent(CONNECTED)
+//    }
 
     private suspend fun onEvent(event: Int) {
         when (event) {
             CONNECTED -> onConnected()
             READ -> onRead()
-            WRITE -> {}
+            WRITE -> onWrite()
             CLOSED -> onClosed()
         }
     }
@@ -100,20 +115,48 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
             }
             readBuffer.compact() // marked state is invalidated
 
-            selectionKey.interestOps(selectionKey.interestOps() or SelectionKey.OP_READ) // OP_READ on
-            CoSelector.wakeup() // 여기서는 wakeup 필요.
+            if (channel.isOpen) { // onReadHandler에서 이미 close되었을 수 있다.
+                selectionKey.on(SelectionKey.OP_READ)
+                CoSelector.wakeup() // 여기서는 wakeup 필요.
+            } else {
+                close()
+                task.sendEvent(CLOSED)
+            }
         } else {
             close()
             task.sendEvent(CLOSED)
         }
     }
 
-    private fun onWrite() {
+    private suspend fun onWrite() {
+        if (outObjs.isNotEmpty()) {
+            for (outObj in outObjs) {
+                var obj: Any = outObj
+                for (handler in pipeline.onWriteHandlers) {
+                    obj = handler.invoke(this, obj)
+                }
+                if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
+                    buffers.add(obj)
+            }
 
+            val it = buffers.iterator()
+            while (it.hasNext()) {
+                val buffer = it.next()
+                internalWrite(buffer)
+                if (buffer.isReadable) // buffer의 내용을 다 write하지 못하고 끝났으면 writable 상태가 아닌 것으로 보고 그만한다.
+                    break              // 나중에 writable 상태로 돌아오면 다시 시작할 것이다.
+                else
+                    it.remove()
+            }
+
+            if (outObjs.isNotEmpty())
+                selectionKey.on(SelectionKey.OP_WRITE)
+        }
     }
 
-    private fun onClosed() {
-        log("onClosed()")
+    private suspend fun onClosed() {
+        pipeline.onClosedHandlers.forEach { it.invoke(this) }
+        service.stop() // service stop 요청.
     }
 
     private fun onIdle() {
@@ -193,18 +236,13 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
         }
     }
 
-//    private fun internalWrite(readBuffer: ReadBuffer): Boolean {
-//        return try {
-//            while (readBuffer.isReadable) {
-//                val lengthToWrite = readBuffer.rArray.size - readBuffer.rOffset
-//                val written = channel.write(ByteBuffer.wrap(readBuffer.rArray, readBuffer.rOffset, lengthToWrite))
-//                readBuffer.rSkip(written)
-//                if (written < lengthToWrite) // 어떤 이유로 요청한 길이만큼을 write하지 못했으면
-//                    break // 일단 그만 한다. 나중에 다시 writable 상태가 오면 다시 시작할 것이다.
-//            }
-//            true
-//        } catch (e: ClosedChannelException) {
-//            false
-//        }
-//    }
+    private fun internalWrite(readBuffer: ReadBuffer) {
+        while (readBuffer.isReadable) {
+            val lengthToWrite = readBuffer.rArray.size - readBuffer.rOffset
+            val written = channel.write(ByteBuffer.wrap(readBuffer.rArray, readBuffer.rOffset, lengthToWrite))
+            readBuffer.rSkip(written)
+            if (written < lengthToWrite) // 어떤 이유로 요청한 길이만큼을 write하지 못했으면
+                break // 일단 그만 한다. 나중에 다시 writable 상태가 오면 다시 시작할 것이다.
+        }
+    }
 }

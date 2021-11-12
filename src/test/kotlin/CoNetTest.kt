@@ -13,7 +13,7 @@ class CoNetTest {
     internal fun test() {
         val serverPipeline = CoPipeline()
         serverPipeline.addOnConnected {
-            println("Server OnConnected()")
+            log("Server OnConnected()")
         }
         serverPipeline.addOnRead { context, inObj ->
             val buffer = (inObj as ReadBuffer)
@@ -21,21 +21,21 @@ class CoNetTest {
             return@addOnRead null
         }
         serverPipeline.addOnWrite { context, outObj ->
-            println("Server OnWrite()")
-            return@addOnWrite outObj
+            log("Server OnWrite()")
+            return@addOnWrite outObj // 그대로 반환.
         }
         serverPipeline.addOnClosed {
-            println("Server OnClosed()")
+            log("Server OnClosed()")
         }
         serverPipeline.addOnError { context, e ->
-            println("Server OnError()")
+            log("Server OnError()")
             e.printStackTrace()
         }
 
         val server = CoServer(serverPipeline)
             .start(InetSocketAddress("localhost", 2323))
 
-        println("Server started.")
+        log("Server started.")
 
         while (true)
             Thread.sleep(1000)
