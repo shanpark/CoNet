@@ -40,8 +40,8 @@ class CoServer(private val pipeline: CoPipeline): CoSelectable {
     private suspend fun onAccepted(socketChannel: SocketChannel) {
         log("CoServer.onAccepted()")
         val connection = CoConnection(socketChannel, pipeline)
+        connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
-        connection.start() // connection start.
     }
 
     private fun onIdle() {
