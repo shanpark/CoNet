@@ -1,3 +1,4 @@
+import io.github.shanpark.buffers.Buffer
 import io.github.shanpark.buffers.ReadBuffer
 import io.github.shanpark.conet.CoPipeline
 import io.github.shanpark.conet.CoServer
@@ -17,12 +18,18 @@ class CoNetTest {
         }
         serverPipeline.addOnRead { context, inObj ->
             val buffer = (inObj as ReadBuffer)
-            log("Server OnRead() - ${buffer.readString(buffer.readableBytes)}")
+            val str = buffer.readString(buffer.readableBytes)
+            log("Server OnRead() - $str")
+            context.write(str)
             return@addOnRead null
         }
-        serverPipeline.addOnWrite { context, outObj ->
-            log("Server OnWrite()")
-            return@addOnWrite outObj // 그대로 반환.
+        serverPipeline.addOnWrite { _, outObj ->
+            val str = outObj as String
+            log("Server OnWrite() - $str")
+
+            val buffer = Buffer()
+            buffer.writeString(str)
+            return@addOnWrite buffer // 최종 핸들러는 ReadBuffer를 반환해야 한다.
         }
         serverPipeline.addOnClosed {
             log("Server OnClosed()")

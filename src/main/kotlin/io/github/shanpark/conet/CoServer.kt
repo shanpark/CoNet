@@ -12,8 +12,8 @@ class CoServer(private val pipeline: CoPipeline): CoSelectable {
     override var channel: ServerSocketChannel = ServerSocketChannel.open()
     override lateinit var selectionKey: SelectionKey
 
-    private lateinit var task: EventLoopCoTask<SocketChannel>
-    private lateinit var service: CoroutineService
+    private var task: EventLoopCoTask<SocketChannel> = EventLoopCoTask(this::onAccepted, 1000L, this::onIdle)
+    private var service = CoroutineService()
 
     init {
         channel.configureBlocking(false)
@@ -21,12 +21,10 @@ class CoServer(private val pipeline: CoPipeline): CoSelectable {
 
     fun start(address: InetSocketAddress): CoServer {
         if (!service.isRunning()) {
+            service.start(task)
+
             channel.bind(address)
             CoSelector.register(this, SelectionKey.OP_ACCEPT)
-
-            task = EventLoopCoTask(this::onAccepted, 1000L, this::onIdle)
-            service = CoroutineService()
-            service.start(task)
         }
         return this
     }

@@ -10,6 +10,7 @@ import on
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
+import kotlin.math.min
 
 class CoConnection(override val channel: SocketChannel, private val pipeline: CoPipeline): CoSelectable {
     companion object {
@@ -132,12 +133,12 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
         if (outObjs.isNotEmpty()) {
             for (outObj in outObjs) {
                 var obj: Any = outObj
-                for (handler in pipeline.onWriteHandlers) {
+                for (handler in pipeline.onWriteHandlers)
                     obj = handler.invoke(this, obj)
-                }
                 if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
                     buffers.add(obj)
             }
+            outObjs.clear() // all objs handled.
 
             val it = buffers.iterator()
             while (it.hasNext()) {
@@ -238,7 +239,7 @@ class CoConnection(override val channel: SocketChannel, private val pipeline: Co
 
     private fun internalWrite(readBuffer: ReadBuffer) {
         while (readBuffer.isReadable) {
-            val lengthToWrite = readBuffer.rArray.size - readBuffer.rOffset
+            val lengthToWrite = min(readBuffer.readableBytes, readBuffer.rArray.size - readBuffer.rOffset)
             val written = channel.write(ByteBuffer.wrap(readBuffer.rArray, readBuffer.rOffset, lengthToWrite))
             readBuffer.rSkip(written)
             if (written < lengthToWrite) // 어떤 이유로 요청한 길이만큼을 write하지 못했으면
