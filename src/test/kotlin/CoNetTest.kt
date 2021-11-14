@@ -27,19 +27,19 @@ class CoNetTest {
     internal fun test() {
         val serverAction = CoAction()
         serverAction.codecChain.add(StringCodec())
-        serverAction.onConnectedHandler = { context ->
+        serverAction.onConnectedHandler = { _ ->
             log("Server OnConnected()")
         }
-        serverAction.onReadHandler = { context, inObj ->
+        serverAction.onReadHandler = { conn, inObj ->
             val str = inObj as String
             log("Server OnRead() - $str")
 
-            context.write(inObj)
+            conn.write(inObj)
         }
         serverAction.onClosedHandler = {
             log("Server OnClosed()")
         }
-        serverAction.onErrorHandler = { context, e ->
+        serverAction.onErrorHandler = { _, e ->
             log("Server OnError()")
             e.printStackTrace()
         }
@@ -57,16 +57,16 @@ class CoNetTest {
             log("Client OnConnected()")
             context.write("Hello Server!!!")
         }
-        clientAction.onReadHandler = { context, inObj: Any ->
+        clientAction.onReadHandler = { conn, inObj: Any ->
             val str = inObj as String
             log("Client OnRead() - $str")
 
-            context.close()
+            conn.close()
         }
         clientAction.onClosedHandler = {
             log("Client OnClosed()")
         }
-        clientAction.onErrorHandler = { context, e ->
+        clientAction.onErrorHandler = { _, e ->
             log("Client OnError()")
             e.printStackTrace()
         }
@@ -75,12 +75,10 @@ class CoNetTest {
             .connect(InetSocketAddress("localhost", 2323))
 
         Thread.sleep(2100)
+
         println("stop    -> ${System.currentTimeMillis()}")
         server.stop()
         server.await()
         println("stop end-> ${System.currentTimeMillis()}")
-
-//        while (true)
-//            Thread.sleep(1000)
     }
 }

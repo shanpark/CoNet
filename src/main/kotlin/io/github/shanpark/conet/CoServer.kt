@@ -49,7 +49,4 @@ class CoServer(private val pipeline: CoAction): CoSelectable {
         connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
     }
-
-    private fun onIdle() {
-    }
 }

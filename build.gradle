@@ -24,7 +24,7 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.5.31"
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2'
     implementation "io.ktor:ktor-network:1.6.4"
-    implementation 'io.github.shanpark:services:0.0.5'
+    implementation 'io.github.shanpark:services:0.0.6'
     implementation 'io.github.shanpark:Buffers:0.0.7'
 
 

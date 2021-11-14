@@ -25,7 +25,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
 
     override lateinit var selectionKey: SelectionKey
 
-    private var task = EventLoopCoTask(::onEvent, 1000, ::onIdle)
+    private var task = EventLoopCoTask(::onEvent, pipeline.idleTimeout, ::onIdle, ::onError)
     private val service = CoroutineService().start(task)
 
     private val inBuffer: Buffer = Buffer()
@@ -75,12 +75,16 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     private suspend fun onEvent(event: Event) {
-        when (event.type) {
-            CONNECTED -> onConnected()
-            READ -> onRead()
-            WRITE -> onWrite(event)
-            CLOSE -> onClose()
-            CLOSED -> onClosed()
+        try {
+            when (event.type) {
+                CONNECTED -> onConnected()
+                READ -> onRead()
+                WRITE -> onWrite(event)
+                CLOSE -> onClose()
+                CLOSED -> onClosed()
+            }
+        } catch (e: Throwable) {
+            onError(e)
         }
     }
 
@@ -156,7 +160,22 @@ open class CoConnection(final override val channel: SocketChannel, private val p
         service.stop() // service stop 요청. 큐에 이미 있더라도 이후 event는 모두 무시된다.
     }
 
-    private fun onIdle() {
+    private suspend fun onIdle() {
+        try {
+            pipeline.onIdleHandler?.invoke(this)
+        } catch (e: Throwable) {
+            onError(e)
+        }
+    }
+
+    /**
+     * 에러가 발생하면 호출된다.
+     * onEvent, onIdle에서 exception이 발생하면 이 함수를 호출하고 service를 계속하지만
+     * service가 스스로 발생시킨 exception인 경우 이 함수를 호출하고 service는 종료된다.
+     * 하지만 현재는 service가 스스로 exception을 발생시킬 일은 없다.
+     */
+    private suspend fun onError(e: Throwable) {
+        pipeline.onErrorHandler?.invoke(this, e)
     }
 
     private fun internalRead(buffer: Buffer): Int {

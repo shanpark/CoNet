@@ -4,6 +4,13 @@ import io.github.shanpark.conet.util.log
 import kotlinx.coroutines.runBlocking
 import java.nio.channels.Selector
 
+/**
+ * 모든 CoSelectable 객체들이 공동으로 사용하는 단 하나의 Selector 객체를 관리하고
+ * Selector 객체에 발생하는 selected key들을 각 등록된 CoSelectable 객체로 전달한다.
+ *
+ * selected key를 전달받은 CoSelectable 객체는 Selector가 바로 다음 selection을 수행할 수 있도록
+ * 가능한 빠르게 key를 처리하고 리턴해야 한다.
+ */
 object CoSelector {
     class RegisterRequest(val selectable: CoSelectable, val interestOpts: Int)
 
@@ -13,8 +20,10 @@ object CoSelector {
     }
 
     /**
-     * CoSelectable 객체를 관심 key와 함께 CoSelector에 등록한다.
-     * 관심 key 이벤트가 발생하면 CoSelectable 객체의 selected()가 호출될 것이다.
+     * CoSelectable 객체를 관심 ops와 함께 CoSelector에 등록한다. 등록이 완료되면 CoSelectable객체의
+     * selectionKey 속성에는 등록 시 생성된 SelectionKey 객체가 설정된다.
+     *
+     * 관심 ops의 이벤트가 발생하면 CoSelectable 객체의 handleSelectedKey()가 호출된다.
      */
     fun register(selectable: CoSelectable, interestKeys: Int) {
         synchronized(registerRequestList) {
@@ -23,10 +32,22 @@ object CoSelector {
         selector.wakeup()
     }
 
+    /**
+     * selector의 select() 작업을 멈추고 즉시 리턴하도록 한다.
+     * 새로운 CoSelectable 객체를 등록하려고 할 때나 등록된 CoSelectable 객체가 자신의 selectionKey에 설졍을
+     * 변경하고나서 Selector가 이를 인식하도록 하기 위해 주로 호출한다.
+     */
     fun wakeup() {
         selector.wakeup()
     }
 
+    /**
+     * Selector를 생성하여 반환하고 실제 select() 작업을 수행하는 스레드도 생성한다.
+     * 최초에 Selector를 access할 때 호출된다.
+     *
+     * 여기서 생성된 Selector는 모든 CoSelectable 객체가 함께 사용하고 생성된 스레드도
+     * process의 종료 시 까지 계속 수행된다.
+     */
     private fun startSelector(): Selector {
         val selector = Selector.open()
 
