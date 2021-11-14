@@ -27,9 +27,17 @@ class CoServer(private val pipeline: CoAction): CoSelectable {
         return this
     }
 
+    fun stop() {
+        service.stop()
+    }
+
+    fun await() {
+        service.await()
+    }
+
     override suspend fun handleSelectedKey(key: SelectionKey) {
         log("CoServer.handleSelectedKey()")
-        if (key.isAcceptable) {
+        if (key.isValid && key.isAcceptable) {
             @Suppress("BlockingMethodInNonBlockingContext")
             task.sendEvent(channel.accept())
         }

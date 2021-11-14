@@ -58,30 +58,19 @@ open class CoConnection(final override val channel: SocketChannel, private val p
      */
     override suspend fun handleSelectedKey(key: SelectionKey) {
         log("CoConnection.handleSelectedKey()")
-        if (key.isReadable) {
-            handleReadable()
-        } else if (key.isWritable) {
-            handleWritable()
-        } else if (key.isConnectable) {
-            handleConnectable()
-        }
-    }
-
-    private suspend fun handleReadable() {
-        selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
-        task.sendEvent(Event.READ)
-    }
-
-    private suspend fun handleWritable() {
-        selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
-        task.sendEvent(Event.WRITE) // 계속 이어서 진행.
-    }
-
-    private suspend fun handleConnectable() {
-        @Suppress("BlockingMethodInNonBlockingContext")
-        if (channel.finishConnect()) {
-            selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
-            task.sendEvent(Event.CONNECTED)
+        if (key.isValid) {
+            if (key.isReadable) {
+                selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
+                task.sendEvent(Event.READ)
+            } else if (key.isWritable) {
+                selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
+                task.sendEvent(Event.WRITE) // 계속 이어서 진행.
+            } else if (key.isConnectable) {
+                @Suppress("BlockingMethodInNonBlockingContext")
+                channel.finishConnect()
+                selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
+                task.sendEvent(Event.CONNECTED)
+            }
         }
     }
 
@@ -116,7 +105,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
                 inBuffer.reset()
             }
 
-            if (channel.isOpen) { // onReadHandler에서 이미 close되었을 수 있다.
+            if (channel.isOpen && selectionKey.isValid) { // onReadHandler에서 이미 close되었을 수 있다.
                 selectionKey.on(SelectionKey.OP_READ)
                 CoSelector.wakeup() // 여기서는 wakeup 필요.
             } else {
@@ -150,8 +139,10 @@ open class CoConnection(final override val channel: SocketChannel, private val p
                 it.remove()
         }
 
-        if (outBuffers.isNotEmpty())
+        if (outBuffers.isNotEmpty() && selectionKey.isValid) {
             selectionKey.on(SelectionKey.OP_WRITE)
+            CoSelector.wakeup() // 여기서는 wakeup 필요.
+        }
     }
 
     private suspend fun onClose() {

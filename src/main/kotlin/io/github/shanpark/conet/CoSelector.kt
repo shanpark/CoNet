@@ -40,8 +40,7 @@ object CoSelector {
                     while (it.hasNext()) {
                         val key = it.next()
                         it.remove()
-                        if (key.isValid)
-                            (key.attachment() as CoSelectable).handleSelectedKey(key)
+                        (key.attachment() as CoSelectable).handleSelectedKey(key)
                     }
 
                     if (registerRequestList.isNotEmpty()) {

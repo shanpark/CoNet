@@ -25,58 +25,62 @@ class CoNetTest {
     @Test
     @DisplayName("EchoServer Test")
     internal fun test() {
-        val serverPipeline = CoAction()
-        serverPipeline.codecChain.add(StringCodec())
-        serverPipeline.onConnectedHandler = { context ->
+        val serverAction = CoAction()
+        serverAction.codecChain.add(StringCodec())
+        serverAction.onConnectedHandler = { context ->
             log("Server OnConnected()")
         }
-        serverPipeline.onReadHandler = { context, inObj ->
+        serverAction.onReadHandler = { context, inObj ->
             val str = inObj as String
             log("Server OnRead() - $str")
 
-            context.write(str)
+            context.write(inObj)
         }
-        serverPipeline.onClosedHandler = {
+        serverAction.onClosedHandler = {
             log("Server OnClosed()")
         }
-        serverPipeline.onErrorHandler = { context, e ->
+        serverAction.onErrorHandler = { context, e ->
             log("Server OnError()")
             e.printStackTrace()
         }
 
-        CoServer(serverPipeline)
+        val server = CoServer(serverAction)
             .start(InetSocketAddress("localhost", 2323))
 
         log("Server started.")
 
         Thread.sleep(100)
 
-        val clientPipeline = CoAction()
-        clientPipeline.codecChain.add(StringCodec())
-        clientPipeline.onConnectedHandler = { context ->
+        val clientAction = CoAction()
+        clientAction.codecChain.add(StringCodec())
+        clientAction.onConnectedHandler = { context ->
             log("Client OnConnected()")
             context.write("Hello Server!!!")
         }
-        clientPipeline.onReadHandler = { context, inObj: Any ->
+        clientAction.onReadHandler = { context, inObj: Any ->
             val str = inObj as String
             log("Client OnRead() - $str")
 
-//            context.write(str)
             context.close()
         }
-        clientPipeline.onClosedHandler = {
+        clientAction.onClosedHandler = {
             log("Client OnClosed()")
         }
-        clientPipeline.onErrorHandler = { context, e ->
+        clientAction.onErrorHandler = { context, e ->
             log("Client OnError()")
             e.printStackTrace()
         }
 
-        CoClient(clientPipeline)
+        CoClient(clientAction)
             .connect(InetSocketAddress("localhost", 2323))
 
-        while (true)
-            Thread.sleep(1000)
-//        server.await()
+        Thread.sleep(2100)
+        println("stop    -> ${System.currentTimeMillis()}")
+        server.stop()
+        server.await()
+        println("stop end-> ${System.currentTimeMillis()}")
+
+//        while (true)
+//            Thread.sleep(1000)
     }
 }
