@@ -9,12 +9,11 @@ import io.github.shanpark.services.coroutine.EventLoopCoTask
 import off
 import on
 import java.nio.ByteBuffer
-import java.nio.channels.ClosedChannelException
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 import kotlin.math.min
 
-open class CoConnection(final override val channel: SocketChannel, private val pipeline: CoPipeline): CoSelectable {
+open class CoConnection(final override val channel: SocketChannel, private val pipeline: CoAction): CoSelectable {
 
     companion object {
         const val CONNECTED = 1
@@ -24,28 +23,13 @@ open class CoConnection(final override val channel: SocketChannel, private val p
         const val CLOSED = 5
     }
 
-//    @Suppress("FunctionName")
-//    class Event(val type: Int, val param: Any? = null) {
-//        companion object {
-//            val CONNECTED = Event(CoConnection.CONNECTED)
-//            val READ = Event(CoConnection.READ)
-//            val WRITE = Event(CoConnection.WRITE)
-//            val CLOSE = Event(CoConnection.CLOSE)
-//            val CLOSED = Event(CoConnection.CLOSED)
-//
-//            fun WRITE(param: Any): Event {
-//                return Event(CoConnection.WRITE, param)
-//            }
-//        }
-//    }
-
     override lateinit var selectionKey: SelectionKey
 
     private var task = EventLoopCoTask(::onEvent, 1000, ::onIdle)
     private val service = CoroutineService().start(task)
 
-    private val readBuffer: Buffer = Buffer()
-    private val buffers = mutableListOf<ReadBuffer>()
+    private val inBuffer: Buffer = Buffer()
+    private val outBuffers = mutableListOf<ReadBuffer>()
 
     init {
         channel.configureBlocking(false)
@@ -56,14 +40,10 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     suspend fun write(outObj: Any) {
-        if (channel.isOpen) {
-            if (outObj is ReadBuffer)
-                task.sendEvent(Event.WRITE(outObj.readSlice(outObj.readableBytes)))
-            else
-                task.sendEvent(Event.WRITE(outObj))
-        } else {
-            throw ClosedChannelException()
-        }
+        if (outObj is ReadBuffer)
+            task.sendEvent(Event.WRITE(outObj.readSlice(outObj.readableBytes)))
+        else
+            task.sendEvent(Event.WRITE(outObj))
     }
 
     suspend fun close() {
@@ -102,8 +82,6 @@ open class CoConnection(final override val channel: SocketChannel, private val p
         if (channel.finishConnect()) {
             selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
             task.sendEvent(Event.CONNECTED)
-        } else {
-            println("Finish not completed !!!!!!")
         }
     }
 
@@ -118,26 +96,25 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     private suspend fun onConnected() {
-        pipeline.onConnectedHandlers.forEach { it.invoke(this) }
+        pipeline.onConnectedHandler?.invoke(this)
     }
 
     private suspend fun onRead() {
-        val read = internalRead(readBuffer) // read from socket.
+        val read = internalRead(inBuffer) // read from socket.
         if (read >= 0) {
-            while (true) {
-                val readableBytes = readBuffer.readableBytes
-
-                var inObj: Any? = readBuffer
-                for (handler in pipeline.onReadHandlers) {
-                    inObj = handler.invoke(this, inObj!!)
-                    if (inObj == null)
-                        break
-                }
-
-                if (!readBuffer.isReadable || (readBuffer.readableBytes == readableBytes))
-                    break // all or nothing used.
+            try {
+                do {
+                    val readableBytes = inBuffer.readableBytes
+                    inBuffer.mark()
+                    var inObj: Any = inBuffer
+                    for (codec in pipeline.codecChain)
+                        inObj = codec.encode(this, inObj)!!
+                    pipeline.onReadHandler?.invoke(this, inObj)
+                } while (inBuffer.isReadable && (inBuffer.readableBytes != readableBytes))
+                inBuffer.compact() // marked state is invalidated
+            } catch (e: NullPointerException) {
+                inBuffer.reset()
             }
-            readBuffer.compact() // marked state is invalidated
 
             if (channel.isOpen) { // onReadHandler에서 이미 close되었을 수 있다.
                 selectionKey.on(SelectionKey.OP_READ)
@@ -153,17 +130,17 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     private suspend fun onWrite(event: Event) {
-        if (event.param != null) { // 계속 이어서 진행하는 경우 outObj가 null이다.
+        if (event.param != null) { // 계속 이어서 진행하는 경우에는 outObj가 null이다.
             var obj: Any = event.param!!
-            for (handler in pipeline.onWriteHandlers)
-                obj = handler.invoke(this, obj)
+            for (codec in pipeline.codecChain)
+                obj = codec.decode(this, obj)
             if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
-                buffers.add(obj)
+                outBuffers.add(obj)
 
             Event.release(event) // param이 null이 아니면 새로 생성한 event이므로 release를 해줘야 garbage가 없다.
         }
 
-        val it = buffers.iterator()
+        val it = outBuffers.iterator()
         while (it.hasNext()) {
             val buffer = it.next()
             internalWrite(buffer)
@@ -173,7 +150,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
                 it.remove()
         }
 
-        if (buffers.isNotEmpty())
+        if (outBuffers.isNotEmpty())
             selectionKey.on(SelectionKey.OP_WRITE)
     }
 
@@ -184,7 +161,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     private suspend fun onClosed() {
-        pipeline.onClosedHandlers.forEach { it.invoke(this) }
+        pipeline.onClosedHandler?.invoke(this)
         service.stop() // service stop 요청. 큐에 이미 있더라도 이후 event는 모두 무시된다.
     }
 

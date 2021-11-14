@@ -8,23 +8,21 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 
-class CoServer(private val pipeline: CoPipeline): CoSelectable {
+class CoServer(private val pipeline: CoAction): CoSelectable {
     override var channel: ServerSocketChannel = ServerSocketChannel.open()
     override lateinit var selectionKey: SelectionKey
 
-    private var task: EventLoopCoTask<SocketChannel> = EventLoopCoTask(this::onAccepted, 1000L, this::onIdle)
-    private var service = CoroutineService()
+    private var task: EventLoopCoTask<SocketChannel> = EventLoopCoTask(this::onAccepted)
+    private var service = CoroutineService().start(task)
 
     init {
         channel.configureBlocking(false)
     }
 
     fun start(address: InetSocketAddress): CoServer {
-        if (!service.isRunning()) {
-            service.start(task)
-
-            channel.bind(address)
+        if (!channel.isRegistered) {
             CoSelector.register(this, SelectionKey.OP_ACCEPT)
+            channel.bind(address)
         }
         return this
     }

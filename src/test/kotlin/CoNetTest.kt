@@ -1,82 +1,79 @@
 import io.github.shanpark.buffers.Buffer
 import io.github.shanpark.buffers.ReadBuffer
-import io.github.shanpark.conet.CoClient
-import io.github.shanpark.conet.CoPipeline
-import io.github.shanpark.conet.CoServer
+import io.github.shanpark.conet.*
 import io.github.shanpark.conet.util.log
-import kotlinx.coroutines.delay
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
+
+class StringCodec: CoCodec {
+    override suspend fun encode(connection: CoConnection, inObj: Any): Any? {
+        val buffer = inObj as ReadBuffer
+        return buffer.readString(buffer.readableBytes)
+    }
+
+    override suspend fun decode(connection: CoConnection, outObj: Any): Any {
+        val str = outObj as String
+        val buffer = Buffer()
+        buffer.writeString(str)
+        return buffer
+    }
+}
 
 class CoNetTest {
 
     @Test
     @DisplayName("EchoServer Test")
     internal fun test() {
-        val serverPipeline = CoPipeline()
-        serverPipeline.addOnConnected { context ->
+        val serverPipeline = CoAction()
+        serverPipeline.codecChain.add(StringCodec())
+        serverPipeline.onConnectedHandler = { context ->
             log("Server OnConnected()")
         }
-        serverPipeline.addOnRead { context, inObj ->
-            val buffer = (inObj as ReadBuffer)
-            val str = buffer.readString(buffer.readableBytes)
+        serverPipeline.onReadHandler = { context, inObj ->
+            val str = inObj as String
             log("Server OnRead() - $str")
+
             context.write(str)
-            return@addOnRead null
         }
-        serverPipeline.addOnWrite { _, outObj ->
-            val str = outObj as String
-            val buffer = Buffer()
-            buffer.writeString(str)
-            return@addOnWrite buffer // 최종 핸들러는 ReadBuffer를 반환해야 한다.
-        }
-        serverPipeline.addOnClosed {
+        serverPipeline.onClosedHandler = {
             log("Server OnClosed()")
         }
-        serverPipeline.addOnError { context, e ->
+        serverPipeline.onErrorHandler = { context, e ->
             log("Server OnError()")
             e.printStackTrace()
         }
 
-        val server = CoServer(serverPipeline)
+        CoServer(serverPipeline)
             .start(InetSocketAddress("localhost", 2323))
 
         log("Server started.")
 
         Thread.sleep(100)
 
-        val clientPipeline = CoPipeline()
-        clientPipeline.addOnConnected { context ->
+        val clientPipeline = CoAction()
+        clientPipeline.codecChain.add(StringCodec())
+        clientPipeline.onConnectedHandler = { context ->
             log("Client OnConnected()")
-
-//            context.close()
             context.write("Hello Server!!!")
         }
-        clientPipeline.addOnRead { context, inObj ->
-            val buffer = (inObj as ReadBuffer)
-            val str = buffer.readString(buffer.readableBytes)
+        clientPipeline.onReadHandler = { context, inObj: Any ->
+            val str = inObj as String
             log("Client OnRead() - $str")
 
+//            context.write(str)
             context.close()
-            return@addOnRead null
         }
-        clientPipeline.addOnWrite { _, outObj ->
-            val str = outObj as String
-            val buffer = Buffer()
-            buffer.writeString(str)
-            return@addOnWrite buffer // 최종 핸들러는 ReadBuffer를 반환해야 한다.
-        }
-        clientPipeline.addOnClosed {
+        clientPipeline.onClosedHandler = {
             log("Client OnClosed()")
         }
-        clientPipeline.addOnError { context, e ->
+        clientPipeline.onErrorHandler = { context, e ->
             log("Client OnError()")
             e.printStackTrace()
         }
 
-        val client = CoClient(clientPipeline)
-        client.connect(InetSocketAddress("localhost", 2323))
+        CoClient(clientPipeline)
+            .connect(InetSocketAddress("localhost", 2323))
 
         while (true)
             Thread.sleep(1000)
