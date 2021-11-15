@@ -8,7 +8,7 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 
-class CoServer(private val pipeline: CoAction): CoSelectable {
+class CoServer(private val handlers: CoHandlers): CoSelectable {
     override var channel: ServerSocketChannel = ServerSocketChannel.open()
     override lateinit var selectionKey: SelectionKey
 
@@ -27,8 +27,9 @@ class CoServer(private val pipeline: CoAction): CoSelectable {
         return this
     }
 
-    fun stop() {
+    fun stop(): CoServer {
         service.stop()
+        return this
     }
 
     fun await() {
@@ -45,7 +46,7 @@ class CoServer(private val pipeline: CoAction): CoSelectable {
 
     private suspend fun onAccepted(socketChannel: SocketChannel) {
         log("CoServer.onAccepted()")
-        val connection = CoConnection(socketChannel, pipeline)
+        val connection = CoConnection(socketChannel, handlers)
         connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
     }

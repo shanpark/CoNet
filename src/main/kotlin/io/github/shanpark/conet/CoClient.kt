@@ -4,7 +4,7 @@ import java.net.InetSocketAddress
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 
-class CoClient(pipeline: CoAction): CoConnection(SocketChannel.open(), pipeline) {
+class CoClient(handlers: CoHandlers): CoConnection(SocketChannel.open(), handlers) {
     override suspend fun connected() {
         throw UnsupportedOperationException("connected() is for CoServer.")
     }
@@ -15,5 +15,14 @@ class CoClient(pipeline: CoAction): CoConnection(SocketChannel.open(), pipeline)
             channel.connect(address)
         }
         return this
+    }
+
+    fun stop(): CoClient {
+        service.stop()
+        return this
+    }
+
+    fun await() {
+        service.await()
     }
 }

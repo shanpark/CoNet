@@ -20,13 +20,66 @@ class StringCodec: CoCodec {
     }
 }
 
+class DummyCodec: CoCodec {
+    override suspend fun encode(connection: CoConnection, inObj: Any): Any? {
+        val str = inObj as String
+        return "($str)"
+    }
+
+    override suspend fun decode(connection: CoConnection, outObj: Any): Any {
+        val str = outObj as String
+        return str.substring(1, str.length - 1)
+    }
+}
+
+/**
+ * CoHandler subclass implementation 샘플.
+ * 이렇게 구현하면 각 connection의 상태를 가질 수 있으며 모든 핸들러는 하나의 coroutine에서
+ * 실행되므로 동기화 문제도 신경쓸 필요가 없음.
+ */
+class Handlers: CoHandlers() {
+    private var counter: Int = 0
+
+    init {
+        codecChain.add(StringCodec())
+        codecChain.add(DummyCodec())
+    }
+
+    override suspend fun onConnected(conn: CoConnection) {
+        log("Client OnConnected()")
+        conn.write("(Hello CoNet)")
+    }
+
+    override suspend fun onRead(conn: CoConnection, inObj: Any) {
+        val str = inObj as String
+        log("Client OnRead() - $str")
+
+        counter++
+        if (counter >= 1000)
+            conn.close()
+        else
+            conn.write(str)
+    }
+
+    override suspend fun onClosed(conn: CoConnection) {
+        log("Client OnClosed()")
+    }
+
+    override suspend fun onError(conn: CoConnection, e: Throwable) {
+        log("Client OnError() - counter:$counter")
+        e.printStackTrace()
+    }
+}
+
 class CoNetTest {
 
     @Test
     @DisplayName("EchoServer Test")
     internal fun test() {
-        val serverAction = CoAction()
+        // inline CoHandler 샘플.
+        val serverAction = CoHandlers()
         serverAction.codecChain.add(StringCodec())
+        serverAction.codecChain.add(DummyCodec())
         serverAction.onConnectedHandler = { _ ->
             log("Server OnConnected()")
         }
@@ -51,34 +104,18 @@ class CoNetTest {
 
         Thread.sleep(100)
 
-        val clientAction = CoAction()
-        clientAction.codecChain.add(StringCodec())
-        clientAction.onConnectedHandler = { context ->
-            log("Client OnConnected()")
-            context.write("Hello Server!!!")
-        }
-        clientAction.onReadHandler = { conn, inObj: Any ->
-            val str = inObj as String
-            log("Client OnRead() - $str")
+        for (inx in 0 .. 100)
+            CoClient(Handlers())
+                .connect(InetSocketAddress("localhost", 2323))
 
-            conn.close()
-        }
-        clientAction.onClosedHandler = {
-            log("Client OnClosed()")
-        }
-        clientAction.onErrorHandler = { _, e ->
-            log("Client OnError()")
-            e.printStackTrace()
-        }
-
-        CoClient(clientAction)
+        CoClient(Handlers())
             .connect(InetSocketAddress("localhost", 2323))
+            .await()
 
-        Thread.sleep(2100)
+        Thread.sleep(1000)
 
-        println("stop    -> ${System.currentTimeMillis()}")
-        server.stop()
-        server.await()
-        println("stop end-> ${System.currentTimeMillis()}")
+        println("stop     -> ${System.currentTimeMillis()}")
+        server.stop().await()
+        println("stop end -> ${System.currentTimeMillis()}")
     }
 }

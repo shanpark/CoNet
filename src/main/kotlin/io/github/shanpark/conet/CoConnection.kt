@@ -9,12 +9,12 @@ import io.github.shanpark.services.coroutine.EventLoopCoTask
 import off
 import on
 import java.nio.ByteBuffer
+import java.nio.channels.ClosedChannelException
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 import kotlin.math.min
 
-open class CoConnection(final override val channel: SocketChannel, private val pipeline: CoAction): CoSelectable {
-
+open class CoConnection(final override val channel: SocketChannel, private val handlers: CoHandlers): CoSelectable {
     companion object {
         const val CONNECTED = 1
         const val READ = 2
@@ -25,8 +25,8 @@ open class CoConnection(final override val channel: SocketChannel, private val p
 
     override lateinit var selectionKey: SelectionKey
 
-    private var task = EventLoopCoTask(::onEvent, pipeline.idleTimeout, ::onIdle, ::onError)
-    private val service = CoroutineService().start(task)
+    private var task = EventLoopCoTask(::onEvent, handlers.idleTimeout, ::onIdle, ::onError)
+    protected val service = CoroutineService().start(task)
 
     private val inBuffer: Buffer = Buffer()
     private val outBuffers = mutableListOf<ReadBuffer>()
@@ -89,7 +89,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     private suspend fun onConnected() {
-        pipeline.onConnectedHandler?.invoke(this)
+        handlers.onConnectedHandler.invoke(this)
     }
 
     private suspend fun onRead() {
@@ -100,9 +100,9 @@ open class CoConnection(final override val channel: SocketChannel, private val p
                     val readableBytes = inBuffer.readableBytes
                     inBuffer.mark()
                     var inObj: Any = inBuffer
-                    for (codec in pipeline.codecChain)
+                    for (codec in handlers.codecChain)
                         inObj = codec.encode(this, inObj)!!
-                    pipeline.onReadHandler?.invoke(this, inObj)
+                    handlers.onReadHandler.invoke(this, inObj)
                 } while (inBuffer.isReadable && (inBuffer.readableBytes != readableBytes))
                 inBuffer.compact() // marked state is invalidated
             } catch (e: NullPointerException) {
@@ -125,7 +125,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     private suspend fun onWrite(event: Event) {
         if (event.param != null) { // 계속 이어서 진행하는 경우에는 outObj가 null이다.
             var obj: Any = event.param!!
-            for (codec in pipeline.codecChain)
+            for (codec in handlers.codecChain.asReversed())
                 obj = codec.decode(this, obj)
             if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
                 outBuffers.add(obj)
@@ -150,19 +150,24 @@ open class CoConnection(final override val channel: SocketChannel, private val p
     }
 
     private suspend fun onClose() {
+        // close() 후에 CLOSED를 보내면 CLOSED보다 먼저 READ가 발생하는 경우가 생긴다.
+        // close()가 OP_READ를 발생시키기 때문인데 그럼에도 불구하고 대부분 CLOSED가 먼저 오지만
+        // 가끔 close()가 처리되면서 즉시 OP_READ가 먼저 처리되어 READ가 먼저 오는 경우가 있다.
+        // CLOSED를 먼저 보내고나서 channel을 close()하면 그런 경우는 발생하지 않는다.
+        task.sendEvent(Event.CLOSED)
+
         @Suppress("BlockingMethodInNonBlockingContext")
         channel.close()
-        task.sendEvent(Event.CLOSED)
     }
 
     private suspend fun onClosed() {
-        pipeline.onClosedHandler?.invoke(this)
+        handlers.onClosedHandler.invoke(this)
         service.stop() // service stop 요청. 큐에 이미 있더라도 이후 event는 모두 무시된다.
     }
 
     private suspend fun onIdle() {
         try {
-            pipeline.onIdleHandler?.invoke(this)
+            handlers.onIdleHandler.invoke(this)
         } catch (e: Throwable) {
             onError(e)
         }
@@ -175,7 +180,7 @@ open class CoConnection(final override val channel: SocketChannel, private val p
      * 하지만 현재는 service가 스스로 exception을 발생시킬 일은 없다.
      */
     private suspend fun onError(e: Throwable) {
-        pipeline.onErrorHandler?.invoke(this, e)
+        handlers.onErrorHandler.invoke(this, e)
     }
 
     private fun internalRead(buffer: Buffer): Int {
