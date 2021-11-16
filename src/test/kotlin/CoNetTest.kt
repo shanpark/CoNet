@@ -151,9 +151,20 @@ class CoNetTest {
             }
             println("All client started.")
 
-            for (client in clientList)
-                client.await()
-            println("All client stopped.")
+            clientList.first().await() // 첫번째 client가 종료될 떄 까지 기다린다.
+            while (true) {
+                val prevSize = clientList.size
+                val it = clientList.iterator()
+                while (it.hasNext()) {
+                    val client = it.next()
+                    client.await(1000)
+                    if (client.isRunning())
+                        it.remove()
+                }
+                if (prevSize == clientList.size)
+                    break
+            }
+            println("All client stopped. [Not Ended: ${clientList.size}]")
         } finally {
             println("server.stop().await()")
             server.stop().await()

@@ -22,7 +22,11 @@ class CoClient(handlers: CoHandlers): CoConnection(SocketChannel.open(), handler
         return this
     }
 
-    fun await() {
-        service.await()
+    fun await(millis: Long = 0) {
+        service.await(millis)
+    }
+
+    fun isRunning(): Boolean {
+        return service.isRunning()
     }
 }

@@ -41,8 +41,8 @@ class CoServer(private val handlers: CoHandlers): CoSelectable {
         return this
     }
 
-    fun await() {
-        service.await()
+    fun await(millis: Long = 0) {
+        service.await(millis)
     }
 
     /**
