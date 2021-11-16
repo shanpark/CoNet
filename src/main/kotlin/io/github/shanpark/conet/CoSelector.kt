@@ -1,15 +1,14 @@
 package io.github.shanpark.conet
 
-import io.github.shanpark.conet.util.log
 import kotlinx.coroutines.runBlocking
 import java.nio.channels.Selector
 
 /**
  * 모든 CoSelectable 객체들이 공동으로 사용하는 단 하나의 Selector 객체를 관리하고
- * Selector 객체에 발생하는 selected key들을 각 등록된 CoSelectable 객체로 전달한다.
+ * Selector 객체에 발생하는 selected key들을 등록된 각 CoSelectable 객체로 전달한다.
  *
- * selected key를 전달받은 CoSelectable 객체는 Selector가 바로 다음 selection을 수행할 수 있도록
- * 가능한 빠르게 key를 처리하고 리턴해야 한다.
+ * selected key는 handleSelectedKey()를 호출하여 전달하며 CoSelectable 객체는 Selector가 바로 다음
+ * selection을 수행할 수 있도록 가능한 빠르게 key를 처리하고 리턴해야 한다.
  */
 object CoSelector {
     class RegisterRequest(val selectable: CoSelectable, val interestOpts: Int)
@@ -24,6 +23,9 @@ object CoSelector {
      * selectionKey 속성에는 등록 시 생성된 SelectionKey 객체가 설정된다.
      *
      * 관심 ops의 이벤트가 발생하면 CoSelectable 객체의 handleSelectedKey()가 호출된다.
+     *
+     * connect()나 bind() 같이 selector에 operation을 발생시키는 함수들은 register()를 호출하기 전에
+     * 먼저 non-blocking 모드로 호출한 후에 register()를 호출하여 등록해주도록 한다.
      */
     fun register(selectable: CoSelectable, interestKeys: Int) {
         synchronized(registerRequestList) {

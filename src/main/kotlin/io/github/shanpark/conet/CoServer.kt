@@ -28,8 +28,8 @@ class CoServer(private val handlers: CoHandlers): CoSelectable {
 
     fun start(address: InetSocketAddress): CoServer {
         if (!channel.isRegistered) {
-            CoSelector.register(this, SelectionKey.OP_ACCEPT)
             channel.bind(address)
+            CoSelector.register(this, SelectionKey.OP_ACCEPT) // register는 bind() 후에 해줘야 한다.
         }
         return this
     }

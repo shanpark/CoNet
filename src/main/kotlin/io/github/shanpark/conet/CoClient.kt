@@ -1,5 +1,6 @@
 package io.github.shanpark.conet
 
+import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
@@ -11,14 +12,14 @@ class CoClient(handlers: CoHandlers): CoConnection(SocketChannel.open(), handler
 
     fun connect(address: InetSocketAddress): CoClient {
         if (!channel.isRegistered) {
-            CoSelector.register(this, SelectionKey.OP_CONNECT or SelectionKey.OP_READ)
             channel.connect(address)
+            CoSelector.register(this, SelectionKey.OP_CONNECT or SelectionKey.OP_READ) // 등록은 connect() 후에 해줘야 한다.
         }
         return this
     }
 
     fun stop(): CoClient {
-        service.stop()
+        runBlocking { close() }
         return this
     }
 

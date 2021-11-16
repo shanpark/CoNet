@@ -72,7 +72,8 @@ class ClientHandlers: CoHandlers() {
         var connCount = AtomicInteger(0)
     }
 
-    private var counter: Int = 0
+    private var wcounter: Int = 0
+    private var rcounter: Int = 0
 
     init {
         codecChain.add(StringCodec())
@@ -81,18 +82,19 @@ class ClientHandlers: CoHandlers() {
 
     override suspend fun onConnected(conn: CoConnection) {
         val count = connCount.incrementAndGet()
-        if (count < 10)
+        if (count % CoNetTest.CLIENT_UNIT == 0)
             log("Client OnConnected() - connCount: $count")
 
         delay(100)
         conn.write("(Hello CoNet)")
+        wcounter++
     }
 
     override suspend fun onRead(conn: CoConnection, inObj: Any) {
         val str = inObj as String
         delay(100)
-        counter++
-        if (counter >= 300)
+        rcounter++
+        if (rcounter >= CoNetTest.PACKET_COUNT)
             conn.close()
         else
             conn.write(str)
@@ -100,41 +102,99 @@ class ClientHandlers: CoHandlers() {
 
     override suspend fun onClosed(conn: CoConnection) {
         val count = connCount.decrementAndGet()
-        if (count < 10)
+        if (count % CoNetTest.CLIENT_UNIT == 0)
             log("Client OnClosed() - connCount: $count")
     }
 
     override suspend fun onError(conn: CoConnection, e: Throwable) {
-        log("Client OnError() - counter:$counter")
+        log("Client OnError() - wcounter:$wcounter, rcounter:$rcounter")
+        e.printStackTrace()
+    }
+}
+
+class TimeCheckHandlers: CoHandlers() {
+    private var rcounter: Int = 0
+
+    private var lastTime: Long = 0
+    private var totalTime: Long = 0
+
+    init {
+        codecChain.add(StringCodec())
+        codecChain.add(DummyCodec())
+    }
+
+    override suspend fun onConnected(conn: CoConnection) {
+        val count = ClientHandlers.connCount.incrementAndGet()
+        if (count % CoNetTest.CLIENT_UNIT == 0)
+            log("Client OnConnected() - connCount: $count")
+
+        delay(100)
+        conn.write("(Hello CoNet)")
+        lastTime = System.currentTimeMillis()
+    }
+
+    override suspend fun onRead(conn: CoConnection, inObj: Any) {
+        val now = System.currentTimeMillis()
+        totalTime += (now - lastTime)
+        rcounter++
+
+        val str = inObj as String
+        delay(100)
+
+        if (rcounter >= CoNetTest.PACKET_COUNT)
+            conn.close()
+        else
+            conn.write(str)
+        lastTime = System.currentTimeMillis()
+    }
+
+    override suspend fun onClosed(conn: CoConnection) {
+        val count = ClientHandlers.connCount.decrementAndGet()
+        if (count % CoNetTest.CLIENT_UNIT == 0)
+            log("Client OnClosed() - connCount: $count")
+
+        val avg = totalTime.toDouble() / rcounter.toDouble()
+        log("==> Average response time: $avg ms")
+    }
+
+    override suspend fun onError(conn: CoConnection, e: Throwable) {
+        log("Client OnError() - rcounter:$rcounter")
         e.printStackTrace()
     }
 }
 
 class CoNetTest {
+    companion object {
+        const val CLIENT_MAX = 20000
+        const val CLIENT_UNIT = (CLIENT_MAX / 10)
+        const val PACKET_COUNT = (CLIENT_MAX / 10)
+    }
 
     @Test
     @DisplayName("EchoServer Test")
     internal fun test() {
         // inline CoHandler 샘플.
-//        val serverAction = CoHandlers()
-//        serverAction.codecChain.add(StringCodec())
-//        serverAction.codecChain.add(DummyCodec())
-//        serverAction.onConnectedHandler = { _ ->
-//            log("Server OnConnected()")
-//        }
-//        serverAction.onReadHandler = { conn, inObj ->
-//            val str = inObj as String
-////            log("Server OnRead() - $str")
-//
-//            conn.write(inObj)
-//        }
-//        serverAction.onClosedHandler = {
-//            log("Server OnClosed()")
-//        }
-//        serverAction.onErrorHandler = { _, e ->
-//            log("Server OnError()")
-//            e.printStackTrace()
-//        }
+/*
+        val serverAction = CoHandlers()
+        serverAction.codecChain.add(StringCodec())
+        serverAction.codecChain.add(DummyCodec())
+        serverAction.onConnectedHandler = { _ ->
+            log("Server OnConnected()")
+        }
+        serverAction.onReadHandler = { conn, inObj ->
+            val str = inObj as String
+//            log("Server OnRead() - $str")
+
+            conn.write(inObj)
+        }
+        serverAction.onClosedHandler = {
+            log("Server OnClosed()")
+        }
+        serverAction.onErrorHandler = { _, e ->
+            log("Server OnError()")
+            e.printStackTrace()
+        }
+*/
 
         val server = CoServer(ServerHandlers())
             .start(InetSocketAddress("localhost", 2323))
@@ -143,22 +203,29 @@ class CoNetTest {
 
         try {
             val clientList: MutableList<CoClient> = mutableListOf()
-            for (inx in 1 .. 10) {
-                val client = CoClient(ClientHandlers())
-                    .connect(InetSocketAddress("localhost", 2323))
+            for (inx in 1 .. CLIENT_MAX) {
+                val client =
+                    if (inx == (CLIENT_MAX / 2)) {
+                        CoClient(TimeCheckHandlers())
+                            .connect(InetSocketAddress("localhost", 2323))
+                    } else {
+                        CoClient(ClientHandlers())
+                            .connect(InetSocketAddress("localhost", 2323))
+                    }
                 clientList.add(client)
-                Thread.yield()
+                Thread.sleep(10)
             }
-            println("All client started.")
+            println("All client started. (client: ${clientList.size}개)")
 
             clientList.first().await() // 첫번째 client가 종료될 떄 까지 기다린다.
-            while (true) {
+            println("First client ends.")
+            while (clientList.isNotEmpty()) {
                 val prevSize = clientList.size
                 val it = clientList.iterator()
                 while (it.hasNext()) {
                     val client = it.next()
                     client.await(1000)
-                    if (client.isRunning())
+                    if (!client.isRunning())
                         it.remove()
                 }
                 if (prevSize == clientList.size)
