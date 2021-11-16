@@ -3,20 +3,18 @@ package io.github.shanpark.conet
 import io.github.shanpark.buffers.Buffer
 import io.github.shanpark.buffers.ReadBuffer
 import io.github.shanpark.conet.util.Event
-import io.github.shanpark.conet.util.log
 import io.github.shanpark.services.coroutine.CoroutineService
 import io.github.shanpark.services.coroutine.EventLoopCoTask
 import off
 import on
 import java.nio.ByteBuffer
-import java.nio.channels.ClosedChannelException
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 import kotlin.math.min
 
 open class CoConnection(final override val channel: SocketChannel, private val handlers: CoHandlers): CoSelectable {
     companion object {
-        const val CONNECTED = 1
+        const val CONNECTED = 1 // Event 선언은 0보다 큰 숫자만 가능
         const val READ = 2
         const val WRITE = 3
         const val CLOSE = 4
@@ -41,9 +39,9 @@ open class CoConnection(final override val channel: SocketChannel, private val h
 
     suspend fun write(outObj: Any) {
         if (outObj is ReadBuffer)
-            task.sendEvent(Event.WRITE(outObj.readSlice(outObj.readableBytes)))
+            task.sendEvent(Event.newWrite(outObj.readSlice(outObj.readableBytes)))
         else
-            task.sendEvent(Event.WRITE(outObj))
+            task.sendEvent(Event.newWrite(outObj))
     }
 
     suspend fun close() {
@@ -57,20 +55,23 @@ open class CoConnection(final override val channel: SocketChannel, private val h
      * 일단 channel에 해당 key가 다시 발생하지 않도록 처리를 즉시해야 하고 가능한 빨리 리턴해야 한다.
      */
     override suspend fun handleSelectedKey(key: SelectionKey) {
-        log("CoConnection.handleSelectedKey()")
-        if (key.isValid) {
-            if (key.isReadable) {
-                selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
-                task.sendEvent(Event.READ)
-            } else if (key.isWritable) {
-                selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
-                task.sendEvent(Event.WRITE) // 계속 이어서 진행.
-            } else if (key.isConnectable) {
-                @Suppress("BlockingMethodInNonBlockingContext")
-                channel.finishConnect()
-                selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
-                task.sendEvent(Event.CONNECTED)
+        try {
+            if (key.isValid) {
+                if (key.isReadable) {
+                    selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
+                    task.sendEvent(Event.READ)
+                } else if (key.isWritable) {
+                    selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
+                    task.sendEvent(Event.WRITE) // 계속 이어서 진행.
+                } else if (key.isConnectable) {
+                    @Suppress("BlockingMethodInNonBlockingContext")
+                    channel.finishConnect()
+                    selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
+                    task.sendEvent(Event.CONNECTED)
+                }
             }
+        } catch (e: Throwable) {
+            task.sendEvent(Event.newError(e))
         }
     }
 
@@ -82,6 +83,7 @@ open class CoConnection(final override val channel: SocketChannel, private val h
                 WRITE -> onWrite(event)
                 CLOSE -> onClose()
                 CLOSED -> onClosed()
+                Event.ERROR -> onError(event)
             }
         } catch (e: Throwable) {
             onError(e)
@@ -130,7 +132,7 @@ open class CoConnection(final override val channel: SocketChannel, private val h
             if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
                 outBuffers.add(obj)
 
-            Event.release(event) // param이 null이 아니면 새로 생성한 event이므로 release를 해줘야 garbage가 없다.
+            Event.release(event)
         }
 
         val it = outBuffers.iterator()
@@ -163,6 +165,11 @@ open class CoConnection(final override val channel: SocketChannel, private val h
     private suspend fun onClosed() {
         handlers.onClosedHandler.invoke(this)
         service.stop() // service stop 요청. 큐에 이미 있더라도 이후 event는 모두 무시된다.
+    }
+
+    private suspend fun onError(event: Event) {
+        onError(event.param as Throwable)
+        Event.release(event) // ERROR 이벤트는 항상 param이 null이 아니며 따라서 항상 release되어야 한다.
     }
 
     private suspend fun onIdle() {

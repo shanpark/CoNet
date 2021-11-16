@@ -54,7 +54,6 @@ object CoSelector {
         Thread {
             runBlocking {
                 while (true) {
-                    log("CoSelector.selector.select()")
                     CoSelector.selector.select()
 
                     val it = CoSelector.selector.selectedKeys().iterator()
