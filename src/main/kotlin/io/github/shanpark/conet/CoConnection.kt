@@ -3,8 +3,10 @@ package io.github.shanpark.conet
 import io.github.shanpark.buffers.Buffer
 import io.github.shanpark.buffers.ReadBuffer
 import io.github.shanpark.conet.util.Event
+import io.github.shanpark.conet.util.log
 import io.github.shanpark.services.coroutine.CoroutineService
 import io.github.shanpark.services.coroutine.EventLoopCoTask
+import kotlinx.coroutines.*
 import off
 import on
 import java.net.SocketOption
@@ -12,6 +14,7 @@ import java.net.StandardSocketOptions
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
+import kotlin.coroutines.coroutineContext
 import kotlin.math.min
 
 open class CoConnection(final override val channel: SocketChannel, private val handlers: CoHandlers): CoSelectable {
@@ -172,8 +175,20 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         // CLOSED를 먼저 보내고나서 channel을 close()하면 그런 경우는 발생하지 않는다.
         task.sendEvent(Event.CLOSED)
 
-        if (channel.isOpen)
-            channel.close() // TODO 여기서 close들어가서 blocking 현상이 있음.
+        CoSelector.unregister(this) // unregister 후에 wakeup은 불필요?? 먼저 unregister를 한다면 CLOSED를 먼저 보낼 필요 없겠는데?
+//        channel.configureBlocking(true)
+        channel.socket().close()
+//        channel.close() // TODO 원래 이것만 하면 된다. 하지만 macOS에서는 close들어가서 blocking 현상이 있음.
+
+        // 문서상으로는 channel.close()만 호출하면된다. 하지만 macOS에서는 close()들어가서 blocking되는 문제가 있다.
+        // Kafka 소스 중에는 channel.socket().close() 먼저하고 그 다음 channel.close()를 하는 경우도 있더라.
+        // 그리고 어떤 글에는 channel.close()는 실제 underlying socket을 닫는 걸 다음 select 작업까지 미룬다고 한다.
+        // 따라서
+        // 1. 먼저 select 작업을 cancel 시키는 걸 시도해본다.
+        // 2. socket().close()를 먼저 시도한다. 주석에는 socket().close()를 하면 관련 channel도 함께 close()된다고 하니
+        //    이것만 해도 될 듯 싶지만 channel의 close()도 해주는 게 좋겠다.
+        // 3. select 작업을 cancel시키고 blocking 모드로 전환한 후 close()를 시도해본다. (이건 거의 못봤음)
+        // 4. 위 명령들을 모두 조합해서 block이 안되는 버전으로 찾아보자.
     }
 
     private suspend fun onClosed() {

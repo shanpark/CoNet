@@ -1,6 +1,7 @@
 package io.github.shanpark.conet
 
 import kotlinx.coroutines.runBlocking
+import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 
 /**
@@ -32,6 +33,10 @@ object CoSelector {
             registerRequestList.add(RegisterRequest(selectable, interestKeys))
         }
         selector.wakeup()
+    }
+
+    fun unregister(selectable: CoSelectable) {
+        selectable.channel.keyFor(selector)?.cancel()
     }
 
     /**

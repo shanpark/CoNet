@@ -172,9 +172,9 @@ class TimeCheckHandlers: CoHandlers() {
 
 class CoNetTest {
     companion object {
-        const val CLIENT_MAX = 800
+        const val CLIENT_MAX = 28000
         const val CLIENT_UNIT = (CLIENT_MAX / 10)
-        const val PACKET_COUNT = (CLIENT_MAX / 6)
+        const val PACKET_COUNT = (CLIENT_MAX / 15)
     }
 
     @Test
