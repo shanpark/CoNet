@@ -6,6 +6,7 @@ import io.github.shanpark.services.util.EventPool
 
 class Event(var type: Int, var param: Any? = null) {
     companion object {
+        val FINISH_CONNECT = Event(CoConnection.FINISH_CONNECT)
         val CONNECTED = Event(CoConnection.CONNECTED)
         val READ = Event(CoConnection.READ)
         val WRITE = Event(CoConnection.WRITE)

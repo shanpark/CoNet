@@ -10,7 +10,7 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 
-class CoServer(private val handlers: CoHandlers): CoSelectable {
+class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
     companion object {
         const val STOP = 0
         const val ACCEPT = 1 // Event 선언은 0보다 큰 숫자만 가능
@@ -70,7 +70,7 @@ class CoServer(private val handlers: CoHandlers): CoSelectable {
     }
 
     private suspend fun onAccept(event: Event) {
-        val connection = CoConnection(event.param as SocketChannel, handlers)
+        val connection = CoConnection(event.param as SocketChannel, handlerFactory.invoke())
         connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
     }

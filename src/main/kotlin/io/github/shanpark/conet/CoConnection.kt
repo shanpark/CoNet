@@ -7,6 +7,8 @@ import io.github.shanpark.services.coroutine.CoroutineService
 import io.github.shanpark.services.coroutine.EventLoopCoTask
 import off
 import on
+import java.net.SocketOption
+import java.net.StandardSocketOptions
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
@@ -14,11 +16,12 @@ import kotlin.math.min
 
 open class CoConnection(final override val channel: SocketChannel, private val handlers: CoHandlers): CoSelectable {
     companion object {
-        const val CONNECTED = 1 // Event 선언은 0보다 큰 숫자만 가능
-        const val READ = 2
-        const val WRITE = 3
-        const val CLOSE = 4
-        const val CLOSED = 5
+        const val FINISH_CONNECT = 1 // Event 선언은 0보다 큰 숫자만 가능
+        const val CONNECTED = 2
+        const val READ = 3
+        const val WRITE = 4
+        const val CLOSE = 5
+        const val CLOSED = 6
     }
 
     override lateinit var selectionKey: SelectionKey
@@ -64,10 +67,12 @@ open class CoConnection(final override val channel: SocketChannel, private val h
                     selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
                     task.sendEvent(Event.WRITE) // 계속 이어서 진행.
                 } else if (key.isConnectable) {
-                    @Suppress("BlockingMethodInNonBlockingContext")
-                    channel.finishConnect()
                     selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
-                    task.sendEvent(Event.CONNECTED)
+                    task.sendEvent(Event.FINISH_CONNECT)
+//                    @Suppress("BlockingMethodInNonBlockingContext")
+//                    channel.finishConnect() // TODO 다른 스레드에서 blocking 동작을 수행하는 건 별로..
+//                    selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
+//                    task.sendEvent(Event.CONNECTED)
                 }
             }
         } catch (e: Throwable) {
@@ -78,6 +83,7 @@ open class CoConnection(final override val channel: SocketChannel, private val h
     private suspend fun onEvent(event: Event) {
         try {
             when (event.type) {
+                FINISH_CONNECT -> onFinishConnect()
                 CONNECTED -> onConnected()
                 READ -> onRead()
                 WRITE -> onWrite(event)
@@ -88,6 +94,16 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         } catch (e: Throwable) {
             onError(e)
         }
+    }
+
+    private suspend fun onFinishConnect() {
+        @Suppress("BlockingMethodInNonBlockingContext")
+        channel.finishConnect()
+
+        task.sendEvent(Event.CONNECTED)
+
+        selectionKey.on(SelectionKey.OP_READ) // OP_READ on.
+        CoSelector.wakeup()
     }
 
     private suspend fun onConnected() {
@@ -116,11 +132,9 @@ open class CoConnection(final override val channel: SocketChannel, private val h
                 CoSelector.wakeup() // 여기서는 wakeup 필요.
             } else {
                 close()
-                task.sendEvent(Event.CLOSED)
             }
         } else {
             close()
-            task.sendEvent(Event.CLOSED)
         }
     }
 
@@ -158,8 +172,8 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         // CLOSED를 먼저 보내고나서 channel을 close()하면 그런 경우는 발생하지 않는다.
         task.sendEvent(Event.CLOSED)
 
-        @Suppress("BlockingMethodInNonBlockingContext")
-        channel.close()
+        if (channel.isOpen)
+            channel.close() // TODO 여기서 close들어가서 blocking 현상이 있음.
     }
 
     private suspend fun onClosed() {

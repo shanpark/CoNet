@@ -13,7 +13,7 @@ class CoClient(handlers: CoHandlers): CoConnection(SocketChannel.open(), handler
     fun connect(address: InetSocketAddress): CoClient {
         if (!channel.isRegistered) {
             channel.connect(address)
-            CoSelector.register(this, SelectionKey.OP_CONNECT or SelectionKey.OP_READ) // 등록은 connect() 후에 해줘야 한다.
+            CoSelector.register(this, SelectionKey.OP_CONNECT) // 등록은 connect() 후에 해줘야 한다.
         }
         return this
     }

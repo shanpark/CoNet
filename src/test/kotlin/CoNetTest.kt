@@ -44,6 +44,8 @@ class ServerHandlers: CoHandlers() {
         var connCount = AtomicInteger(0)
     }
 
+    private var readCount = 0
+
     init {
         codecChain.add(StringCodec())
         codecChain.add(DummyCodec())
@@ -54,10 +56,13 @@ class ServerHandlers: CoHandlers() {
     }
 
     override suspend fun onRead(conn: CoConnection, inObj: Any) {
+        readCount++
         conn.write(inObj)
     }
 
     override suspend fun onClosed(conn: CoConnection) {
+        if (readCount < CoNetTest.PACKET_COUNT)
+            log("PacketCount not enough: ${readCount}")
 //        log("Server OnClosed() - connCount: ${connCount.decrementAndGet()}")
     }
 
@@ -94,10 +99,12 @@ class ClientHandlers: CoHandlers() {
         val str = inObj as String
         delay(100)
         rcounter++
-        if (rcounter >= CoNetTest.PACKET_COUNT)
+        if (rcounter >= CoNetTest.PACKET_COUNT) {
             conn.close()
-        else
+        } else {
             conn.write(str)
+            wcounter++
+        }
     }
 
     override suspend fun onClosed(conn: CoConnection) {
@@ -165,9 +172,9 @@ class TimeCheckHandlers: CoHandlers() {
 
 class CoNetTest {
     companion object {
-        const val CLIENT_MAX = 20000
+        const val CLIENT_MAX = 800
         const val CLIENT_UNIT = (CLIENT_MAX / 10)
-        const val PACKET_COUNT = (CLIENT_MAX / 10)
+        const val PACKET_COUNT = (CLIENT_MAX / 6)
     }
 
     @Test
@@ -196,7 +203,7 @@ class CoNetTest {
         }
 */
 
-        val server = CoServer(ServerHandlers())
+        val server = CoServer { ServerHandlers() }
             .start(InetSocketAddress("localhost", 2323))
         log("Server started.")
         Thread.sleep(100)
@@ -231,7 +238,24 @@ class CoNetTest {
                 if (prevSize == clientList.size)
                     break
             }
-            println("All client stopped. [Not Ended: ${clientList.size}]")
+            if (clientList.isNotEmpty()) {
+                println("Some client not stopped. [Not Ended: ${clientList.size}]")
+                val it = clientList.iterator()
+                while (it.hasNext()) {
+                    val client = it.next()
+                    if (client.isRunning()) {
+                        client.stop().await(1000 * 5)
+                        if (!client.isRunning())
+                            it.remove()
+                    } else {
+                        it.remove()
+                    }
+                }
+
+                println("Give up stopping. [Not Ended: ${clientList.size}]")
+            } else {
+                println("All client stopped.")
+            }
         } finally {
             println("server.stop().await()")
             server.stop().await()
