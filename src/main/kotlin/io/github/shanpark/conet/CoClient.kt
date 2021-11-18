@@ -7,7 +7,7 @@ import java.nio.channels.SocketChannel
 
 class CoClient(handlers: CoHandlers): CoConnection(SocketChannel.open(), handlers) {
     override suspend fun connected() {
-        throw UnsupportedOperationException("connected() is for CoServer.")
+        throw UnsupportedOperationException("connected() method is for CoServer.")
     }
 
     fun connect(address: InetSocketAddress): CoClient {

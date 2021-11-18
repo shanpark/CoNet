@@ -3,18 +3,13 @@ package io.github.shanpark.conet
 import io.github.shanpark.buffers.Buffer
 import io.github.shanpark.buffers.ReadBuffer
 import io.github.shanpark.conet.util.Event
-import io.github.shanpark.conet.util.log
+import io.github.shanpark.conet.util.off
+import io.github.shanpark.conet.util.on
 import io.github.shanpark.services.coroutine.CoroutineService
 import io.github.shanpark.services.coroutine.EventLoopCoTask
-import kotlinx.coroutines.*
-import off
-import on
-import java.net.SocketOption
-import java.net.StandardSocketOptions
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
-import kotlin.coroutines.coroutineContext
 import kotlin.math.min
 
 open class CoConnection(final override val channel: SocketChannel, private val handlers: CoHandlers): CoSelectable {
@@ -45,9 +40,9 @@ open class CoConnection(final override val channel: SocketChannel, private val h
 
     suspend fun write(outObj: Any) {
         if (outObj is ReadBuffer)
-            task.sendEvent(Event.newWrite(outObj.readSlice(outObj.readableBytes)))
+            task.sendEvent(Event.newWriteEvent(outObj.readSlice(outObj.readableBytes)))
         else
-            task.sendEvent(Event.newWrite(outObj))
+            task.sendEvent(Event.newWriteEvent(outObj))
     }
 
     suspend fun close() {
@@ -72,14 +67,10 @@ open class CoConnection(final override val channel: SocketChannel, private val h
                 } else if (key.isConnectable) {
                     selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
                     task.sendEvent(Event.FINISH_CONNECT)
-//                    @Suppress("BlockingMethodInNonBlockingContext")
-//                    channel.finishConnect() // TODO 다른 스레드에서 blocking 동작을 수행하는 건 별로..
-//                    selectionKey.off(SelectionKey.OP_CONNECT) // OP_CONNECT off. wakeup은 필요없다.
-//                    task.sendEvent(Event.CONNECTED)
                 }
             }
         } catch (e: Throwable) {
-            task.sendEvent(Event.newError(e))
+            task.sendEvent(Event.newErrorEvent(e))
         }
     }
 
@@ -169,26 +160,15 @@ open class CoConnection(final override val channel: SocketChannel, private val h
     }
 
     private suspend fun onClose() {
-        // close() 후에 CLOSED를 보내면 CLOSED보다 먼저 READ가 발생하는 경우가 생긴다.
-        // close()가 OP_READ를 발생시키기 때문인데 그럼에도 불구하고 대부분 CLOSED가 먼저 오지만
-        // 가끔 close()가 처리되면서 즉시 OP_READ가 먼저 처리되어 READ가 먼저 오는 경우가 있다.
-        // CLOSED를 먼저 보내고나서 channel을 close()하면 그런 경우는 발생하지 않는다.
-        task.sendEvent(Event.CLOSED)
+        // close()하기 전에 selector unregister를 먼저 해줘야 한다.
+        // selector를 unregister하지 않았도 linux에서는 문제가 없지만 macOS에서는 channel을 close()할 때
+        // 가끔 무한 block되는 현상이 있다. 또한 close()를 하면서 selector에 발생하는 OP_READ도 신경쓸 필요가 없어진다.
+        // 따라서 반드시 close()하기 전에 먼저 selector를 unregister해주도록 한다.
+        CoSelector.unregister(this)
+        @Suppress("BlockingMethodInNonBlockingContext")
+        channel.close()
 
-        CoSelector.unregister(this) // unregister 후에 wakeup은 불필요?? 먼저 unregister를 한다면 CLOSED를 먼저 보낼 필요 없겠는데?
-//        channel.configureBlocking(true)
-        channel.socket().close()
-//        channel.close() // TODO 원래 이것만 하면 된다. 하지만 macOS에서는 close들어가서 blocking 현상이 있음.
-
-        // 문서상으로는 channel.close()만 호출하면된다. 하지만 macOS에서는 close()들어가서 blocking되는 문제가 있다.
-        // Kafka 소스 중에는 channel.socket().close() 먼저하고 그 다음 channel.close()를 하는 경우도 있더라.
-        // 그리고 어떤 글에는 channel.close()는 실제 underlying socket을 닫는 걸 다음 select 작업까지 미룬다고 한다.
-        // 따라서
-        // 1. 먼저 select 작업을 cancel 시키는 걸 시도해본다.
-        // 2. socket().close()를 먼저 시도한다. 주석에는 socket().close()를 하면 관련 channel도 함께 close()된다고 하니
-        //    이것만 해도 될 듯 싶지만 channel의 close()도 해주는 게 좋겠다.
-        // 3. select 작업을 cancel시키고 blocking 모드로 전환한 후 close()를 시도해본다. (이건 거의 못봤음)
-        // 4. 위 명령들을 모두 조합해서 block이 안되는 버전으로 찾아보자.
+        task.sendEvent(Event.CLOSED) // 채널을 닫았으므로 CLOSED를 전송한다.
     }
 
     private suspend fun onClosed() {

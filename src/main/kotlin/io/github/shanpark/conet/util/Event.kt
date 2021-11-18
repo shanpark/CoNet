@@ -19,7 +19,7 @@ class Event(var type: Int, var param: Any? = null) {
         private val _STOP = Event(STOP)
 
         @Suppress("FunctionName")
-        fun newAccept(param: Any): Event {
+        fun newAcceptEvent(param: Any): Event {
             val event = eventPool.get()
             event.type = CoServer.ACCEPT
             event.param = param
@@ -27,7 +27,7 @@ class Event(var type: Int, var param: Any? = null) {
         }
 
         @Suppress("FunctionName")
-        fun newWrite(param: Any): Event {
+        fun newWriteEvent(param: Any): Event {
             val event = eventPool.get()
             event.type = CoConnection.WRITE
             event.param = param
@@ -35,12 +35,12 @@ class Event(var type: Int, var param: Any? = null) {
         }
 
         @Suppress("FunctionName")
-        fun newStop(): Event {
+        fun newStopEvent(): Event {
             return _STOP
         }
 
         @Suppress("FunctionName")
-        fun newError(param: Any): Event {
+        fun newErrorEvent(param: Any): Event {
             val event = eventPool.get()
             event.type = ERROR
             event.param = param

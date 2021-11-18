@@ -1,7 +1,6 @@
 package io.github.shanpark.conet
 
 import kotlinx.coroutines.runBlocking
-import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 
 /**

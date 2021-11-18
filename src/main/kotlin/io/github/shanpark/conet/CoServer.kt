@@ -36,7 +36,7 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
 
     fun stop(): CoServer {
         runBlocking {
-            task.sendEvent(Event.newStop())
+            task.sendEvent(Event.newStopEvent())
         }
         return this
     }
@@ -54,10 +54,10 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
         try {
             if (key.isValid && key.isAcceptable) {
                 @Suppress("BlockingMethodInNonBlockingContext")
-                task.sendEvent(Event.newAccept(channel.accept()))
+                task.sendEvent(Event.newAcceptEvent(channel.accept()))
             }
         } catch (e: Exception) {
-            task.sendEvent(Event.newError(e))
+            task.sendEvent(Event.newErrorEvent(e))
         }
     }
 
@@ -73,6 +73,7 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
         val connection = CoConnection(event.param as SocketChannel, handlerFactory.invoke())
         connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
+        Event.release(event) // ACCEPT 이벤트는 param이 항상 null이 아니다. 따라서 항상 release되어야 한다.
     }
 
     private fun onStop() {
@@ -84,6 +85,6 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
         log("CoServer.onError()")
         // server channel의 accept()가 에러나는 경우이다.
         (event.param as Throwable).printStackTrace()
-        Event.release(event) // ERROR 이벤트는 param이 항상 null이 아니면 따라서 항상 release되어야 한다.
+        Event.release(event) // ERROR 이벤트는 param이 항상 null이 아니다. 따라서 항상 release되어야 한다.
     }
 }
