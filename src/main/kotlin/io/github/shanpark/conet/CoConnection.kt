@@ -12,6 +12,13 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 import kotlin.math.min
 
+/**
+ * socket connection을 wrapping하여 coroutine 서비스를 구현하는 클래스
+ * 사용자가 직접 생성할 일은 없으며 CoClient 나 CoServer 객체를 통해서 생성된다.
+ *
+ * @param channel socketChannel 객체. CoSelectable 인터페이스 구현을 위해서 필요하다.
+ * @param handlers connection에서 발생하는 이벤트 처리를 구현한 CoHandlers 객체.
+ */
 open class CoConnection(final override val channel: SocketChannel, private val handlers: CoHandlers): CoSelectable {
     companion object {
         const val FINISH_CONNECT = 1 // Event 선언은 0보다 큰 숫자만 가능
@@ -22,6 +29,9 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         const val CLOSED = 6
     }
 
+    /**
+     * CoSelectable 인터페이스 구현.
+     */
     override lateinit var selectionKey: SelectionKey
 
     private var task = EventLoopCoTask(::onEvent, handlers.idleTimeout, ::onIdle, ::onError)
@@ -34,26 +44,45 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         channel.configureBlocking(false)
     }
 
+    /**
+     * CoServer에서 새로운 접속을 accept()한 후 CoConnection객체를 생성하고 호출해주는 메소드이다.
+     * 접속이 맺어진 후 최초에 한 번만 호출해준다.
+     */
     open suspend fun connected() {
         task.sendEvent(Event.CONNECTED)
     }
 
+    /**
+     * peer로 보낼 객체를 write한다.
+     * 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로 ReadBuffer 객체로
+     * 변환되어야 한다.
+     * ReadBuffer 객체를 write하면 buffer의 내용은 모두 읽혀진다.
+     *
+     * @param outObj peer로 보낼 데이터 객체.
+     */
     suspend fun write(outObj: Any) {
         if (outObj is ReadBuffer)
-            task.sendEvent(Event.newWriteEvent(outObj.readSlice(outObj.readableBytes)))
+            task.sendEvent(Event.newEvent(WRITE, outObj.readSlice(outObj.readableBytes)))
         else
-            task.sendEvent(Event.newWriteEvent(outObj))
+            task.sendEvent(Event.newEvent(WRITE, outObj))
     }
 
+    /**
+     * 현재 접속을 닫도록 요청한다.
+     * 이미 닫혀진 상태에서는 호출해서는 안된다.
+     */
     suspend fun close() {
         task.sendEvent(Event.CLOSE)
     }
 
     /**
-     * CoSelector의 thread에서만 호출되며 Selector에 OP_READ, OP_WRITE, OP_CONNECT가
-     * 발생하면 호출된다. 실행도 역시 CoSelector thread에서 실행된다.
+     * CoSelectable 인터페이스 구현.
+     * CoSelector의 thread에서만 호출되며 Selector에 OP_READ, OP_WRITE, OP_CONNECT가 발생하면 호출된다.
      *
-     * 일단 channel에 해당 key가 다시 발생하지 않도록 처리를 즉시해야 하고 가능한 빨리 리턴해야 한다.
+     * 일단 channel에 해당 key가 다시 발생하지 않도록 처리를 즉시해야 하고 가능한 빨리 리턴하는 것이 좋다.
+     * 내부적으로 발생하는 모든 exception은 전파되어서는 안되고 반드시 처리한 후에 리턴해야 한다.
+     *
+     * @param key selector에 의해 select된 key.
      */
     override suspend fun handleSelectedKey(key: SelectionKey) {
         try {
@@ -74,6 +103,13 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         }
     }
 
+    /**
+     * 내부 coroutine 서비스에 의해 실행되는 event 핸들러이다.
+     * CoConnection객체는 event 처리의 동기화 문제를 없애기 위해 순차적으로 event를 처리하는데
+     * 그 때 호출되는 내부 핸들러 메소드이다.
+     *
+     * @param event 내부 이벤트 객체.
+     */
     private suspend fun onEvent(event: Event) {
         try {
             when (event.type) {
@@ -140,7 +176,7 @@ open class CoConnection(final override val channel: SocketChannel, private val h
             if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
                 outBuffers.add(obj)
 
-            Event.release(event)
+            Event.release(event) // param이 not null인 경우 release 해줘야 한다.
         }
 
         val it = outBuffers.iterator()
@@ -195,10 +231,18 @@ open class CoConnection(final override val channel: SocketChannel, private val h
      * service가 스스로 발생시킨 exception인 경우 이 함수를 호출하고 service는 종료된다.
      * 하지만 현재는 service가 스스로 exception을 발생시킬 일은 없다.
      */
-    private suspend fun onError(e: Throwable) {
-        handlers.onErrorHandler.invoke(this, e)
+    private suspend fun onError(cause: Throwable) {
+        handlers.onErrorHandler.invoke(this, cause)
     }
 
+    /**
+     * 실제로 socket channel에서 data를 읽어들이는 메소드이다.
+     * 파라미터로 받은 Buffer 객체로 데이터를 읽어들이고 실제 읽혀진 byte 수를 반환한다.
+     *
+     * @param buffer 데이터를 읽어들일 Buffer 객체.
+     *
+     * @return 실제 읽혀진 byte 수.
+     */
     private fun internalRead(buffer: Buffer): Int {
         var read: Int
         var total = 0 // 총 읽은 byte 수.
@@ -222,6 +266,14 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         }
     }
 
+    /**
+     * 실제로 socket channel에 data를 write 하는 메소드이다.
+     * 파라미터로 받은 ReadBuffer 객체의 내용을 channel에 write하고 실제 write가 된 byte 수를 반환한다.
+     *
+     * @param readBuffer channel에 write할 데이터를 담은 Buffer 객체.
+     *
+     * @return 실제 write된 byte 수.
+     */
     private fun internalWrite(readBuffer: ReadBuffer) {
         while (readBuffer.isReadable) {
             val lengthToWrite = min(readBuffer.readableBytes, readBuffer.rArray.size - readBuffer.rOffset)

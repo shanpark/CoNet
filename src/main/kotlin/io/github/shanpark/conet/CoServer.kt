@@ -10,10 +10,20 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 
+/**
+ * TCP 소켓 서버를 구현한 클래스.
+ * TCP 접속 요청을 accept하여 새로운 CoConnection객체를 생성해준다.
+ * 내부적으로 accept()를 수행하기 위한 coroutine 서비스를 생성하여 실행하며
+ * stop()이 호출될 때 까지 계속된다. stop()이 호출되어 최종적으로 내부 서비스가 종료된 이후에는
+ * 다시 이 객체는 재사용할 수 없다.
+ *
+ * @param handlerFactory CoHandlers 객체를 생성하여 반환하는 factory 메소드. 새로운 CoConnection 객체를 생성할 때 마다
+ *                       호출하여 새로운 CoConnection 객체가 사용하도록 한다.
+ */
 class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
     companion object {
-        const val STOP = 0
         const val ACCEPT = 1 // Event 선언은 0보다 큰 숫자만 가능
+        const val STOP = 2
     }
 
     override var channel: ServerSocketChannel = ServerSocketChannel.open()
@@ -26,6 +36,12 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
         channel.configureBlocking(false)
     }
 
+    /**
+     * 파라미터로 전달된 주소에 binding하여 listen / accept 작업을 시작한다.
+     * 이미 시작된 상태에서는 아무것도 하지 않는다.
+     *
+     * @param address binding할 주소 객체.
+     */
     fun start(address: InetSocketAddress): CoServer {
         if (!channel.isRegistered) {
             channel.bind(address)
@@ -34,15 +50,34 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
         return this
     }
 
+    /**
+     * 실행 중단을 요청한다.
+     * 비동기로 수행되며 최종적으로 내부 서비스가 종료되어야 완전히 종료된 것으로 볼 수 있다.
+     * await() 메소드를 통해서 최종 종료시까지 대기할 수 있다.
+     */
     fun stop(): CoServer {
         runBlocking {
-            task.sendEvent(Event.newStopEvent())
+            task.sendEvent(Event.STOP)
         }
         return this
     }
 
+    /**
+     * 서비스가 종료될 때 까지 대기한다.
+     * 파라미터로 지정된 시간(ms)이 지나면 서비스가 종료되지 않았더라도 함수가 반환된다.
+     * default 값인 0이 지정되면 서비스가 종료될 때 까지 무한 대기한다.
+     */
     fun await(millis: Long = 0) {
         service.await(millis)
+    }
+
+    /**
+     * 이벤트 처리를 위해서 생성된 내부 coroutine 서비스가 실행 중인지 여부를 반환한다.
+     *
+     * @return coroutine 서비스가 실행중이면 true, 아니면 false.
+     */
+    fun isRunning(): Boolean {
+        return service.isRunning()
     }
 
     /**
@@ -54,7 +89,7 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
         try {
             if (key.isValid && key.isAcceptable) {
                 @Suppress("BlockingMethodInNonBlockingContext")
-                task.sendEvent(Event.newAcceptEvent(channel.accept()))
+                task.sendEvent(Event.newEvent(ACCEPT, channel.accept()))
             }
         } catch (e: Exception) {
             task.sendEvent(Event.newErrorEvent(e))

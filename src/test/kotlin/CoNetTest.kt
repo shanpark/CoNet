@@ -9,12 +9,12 @@ import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
 
 class StringCodec: CoCodec {
-    override suspend fun encode(connection: CoConnection, inObj: Any): Any? {
+    override suspend fun encode(conn: CoConnection, inObj: Any): Any {
         val buffer = inObj as ReadBuffer
         return buffer.readString(buffer.readableBytes)
     }
 
-    override suspend fun decode(connection: CoConnection, outObj: Any): Any {
+    override suspend fun decode(conn: CoConnection, outObj: Any): Any {
         val str = outObj as String
         val buffer = Buffer()
         buffer.writeString(str)
@@ -23,12 +23,12 @@ class StringCodec: CoCodec {
 }
 
 class DummyCodec: CoCodec {
-    override suspend fun encode(connection: CoConnection, inObj: Any): Any? {
+    override suspend fun encode(conn: CoConnection, inObj: Any): Any? {
         val str = inObj as String
         return "($str)"
     }
 
-    override suspend fun decode(connection: CoConnection, outObj: Any): Any {
+    override suspend fun decode(conn: CoConnection, outObj: Any): Any {
         val str = outObj as String
         return str.substring(1, str.length - 1)
     }
@@ -66,9 +66,9 @@ class ServerHandlers: CoHandlers() {
 //        log("Server OnClosed() - connCount: ${connCount.decrementAndGet()}")
     }
 
-    override suspend fun onError(conn: CoConnection, e: Throwable) {
+    override suspend fun onError(conn: CoConnection, cause: Throwable) {
         log("Server OnError()")
-        e.printStackTrace()
+        cause.printStackTrace()
     }
 }
 
@@ -113,9 +113,9 @@ class ClientHandlers: CoHandlers() {
             log("Client OnClosed() - connCount: $count")
     }
 
-    override suspend fun onError(conn: CoConnection, e: Throwable) {
+    override suspend fun onError(conn: CoConnection, cause: Throwable) {
         log("Client OnError() - wcounter:$wcounter, rcounter:$rcounter")
-        e.printStackTrace()
+        cause.printStackTrace()
     }
 }
 
@@ -164,9 +164,9 @@ class TimeCheckHandlers: CoHandlers() {
         log("==> Average response time: $avg ms")
     }
 
-    override suspend fun onError(conn: CoConnection, e: Throwable) {
+    override suspend fun onError(conn: CoConnection, cause: Throwable) {
         log("Client OnError() - rcounter:$rcounter")
-        e.printStackTrace()
+        cause.printStackTrace()
     }
 }
 

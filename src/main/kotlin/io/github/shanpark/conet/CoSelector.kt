@@ -11,7 +11,7 @@ import java.nio.channels.Selector
  * selection을 수행할 수 있도록 가능한 빠르게 key를 처리하고 리턴해야 한다.
  */
 object CoSelector {
-    class RegisterRequest(val selectable: CoSelectable, val interestOpts: Int)
+    private class RegisterRequest(val selectable: CoSelectable, val interestOpts: Int)
 
     private val registerRequestList: MutableList<RegisterRequest> = mutableListOf()
     private val selector: Selector by lazy {
@@ -34,6 +34,9 @@ object CoSelector {
         selector.wakeup()
     }
 
+    /**
+     * 등록된 CoSelectable 객체를 등록 해제 시킨다.
+     */
     fun unregister(selectable: CoSelectable) {
         selectable.channel.keyFor(selector)?.cancel()
     }
@@ -48,10 +51,10 @@ object CoSelector {
     }
 
     /**
-     * Selector를 생성하여 반환하고 실제 select() 작업을 수행하는 스레드도 생성한다.
-     * 최초에 Selector를 access할 때 호출된다.
+     * selector를 생성하여 반환하고, 실제 select() 작업을 수행하는 스레드도 생성한다.
+     * 최초에 selector를 access할 때 한 번만 호출된다.
      *
-     * 여기서 생성된 Selector는 모든 CoSelectable 객체가 함께 사용하고 생성된 스레드도
+     * 여기서 생성된 selector는 모든 CoSelectable 객체가 함께 사용하고 생성된 스레드도
      * process의 종료 시 까지 계속 수행된다.
      */
     private fun startSelector(): Selector {

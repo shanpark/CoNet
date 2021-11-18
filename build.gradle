@@ -8,7 +8,7 @@ publishing {
         mavenJava(MavenPublication) {
             groupId = 'io.github.shanpark'
             artifactId = 'conet'
-            version = '0.0.1-SNAPSHOT'
+            version = '0.0.1'
 
             from components.java
         }
@@ -26,7 +26,6 @@ dependencies {
     implementation "io.ktor:ktor-network:1.6.4"
     implementation 'io.github.shanpark:services:0.0.6'
     implementation 'io.github.shanpark:Buffers:0.0.7'
-
 
     testImplementation "org.assertj:assertj-core:3.21.0"
     testImplementation "org.junit.jupiter:junit-jupiter-api:5.8.1"

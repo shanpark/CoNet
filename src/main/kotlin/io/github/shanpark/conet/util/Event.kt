@@ -4,42 +4,29 @@ import io.github.shanpark.conet.CoConnection
 import io.github.shanpark.conet.CoServer
 import io.github.shanpark.services.util.EventPool
 
+/**
+ * CoNet framework 내부적으로 사용되는 Event 객체 클래스.
+ */
 class Event(var type: Int, var param: Any? = null) {
     companion object {
+        // parameter가 필요없는 event는 미리 만들어 놓고 singleton 형태로 재활용한다.
         val FINISH_CONNECT = Event(CoConnection.FINISH_CONNECT)
         val CONNECTED = Event(CoConnection.CONNECTED)
         val READ = Event(CoConnection.READ)
-        val WRITE = Event(CoConnection.WRITE)
+        val WRITE = Event(CoConnection.WRITE) // write 이벤트는 param이 있을 때도 있고 없을 때도 있다. 없을 때만 이걸 사용한다.
         val CLOSE = Event(CoConnection.CLOSE)
         val CLOSED = Event(CoConnection.CLOSED)
+        val STOP = Event(CoServer.STOP)
 
-        const val STOP = 0
         const val ERROR = -1
 
-        private val _STOP = Event(STOP)
-
-        @Suppress("FunctionName")
-        fun newAcceptEvent(param: Any): Event {
+        fun newEvent(type: Int, param: Any): Event {
             val event = eventPool.get()
-            event.type = CoServer.ACCEPT
+            event.type = type
             event.param = param
             return event
         }
 
-        @Suppress("FunctionName")
-        fun newWriteEvent(param: Any): Event {
-            val event = eventPool.get()
-            event.type = CoConnection.WRITE
-            event.param = param
-            return event
-        }
-
-        @Suppress("FunctionName")
-        fun newStopEvent(): Event {
-            return _STOP
-        }
-
-        @Suppress("FunctionName")
         fun newErrorEvent(param: Any): Event {
             val event = eventPool.get()
             event.type = ERROR
