@@ -1,4 +1,4 @@
-package io.github.shanpark.conet
+package com.github.shanpark.conet
 
 typealias OnConnected = suspend (conn: CoConnection) -> Unit
 typealias OnRead = suspend (conn: CoConnection, inObj: Any) -> Unit

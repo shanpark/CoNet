@@ -1,4 +1,4 @@
-package io.github.shanpark.conet
+package com.github.shanpark.conet
 
 import kotlinx.coroutines.runBlocking
 import java.nio.channels.Selector

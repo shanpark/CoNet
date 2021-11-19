@@ -1,7 +1,6 @@
-
-import io.github.shanpark.conet.CoConnection
-import io.github.shanpark.conet.CoHandlers
-import io.github.shanpark.conet.util.log
+import com.github.shanpark.conet.CoConnection
+import com.github.shanpark.conet.CoHandlers
+import com.github.shanpark.conet.util.log
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 

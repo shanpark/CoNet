@@ -1,9 +1,9 @@
-package io.github.shanpark.conet
+package com.github.shanpark.conet
 
-import io.github.shanpark.conet.util.Event
-import io.github.shanpark.conet.util.log
-import io.github.shanpark.services.coroutine.CoroutineService
-import io.github.shanpark.services.coroutine.EventLoopCoTask
+import com.github.shanpark.conet.util.Event
+import com.github.shanpark.conet.util.log
+import com.github.shanpark.services.coroutine.CoroutineService
+import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
 import java.nio.channels.SelectionKey
@@ -17,10 +17,10 @@ import java.nio.channels.SocketChannel
  * stop()이 호출될 때 까지 계속된다. stop()이 호출되어 최종적으로 내부 서비스가 종료된 이후에는
  * 다시 이 객체는 재사용할 수 없다.
  *
- * @param handlerFactory CoHandlers 객체를 생성하여 반환하는 factory 메소드. 새로운 CoConnection 객체를 생성할 때 마다
+ * @param handlersFactory CoHandlers 객체를 생성하여 반환하는 factory 메소드. 새로운 CoConnection 객체를 생성할 때 마다
  *                       호출하여 새로운 CoConnection 객체가 사용하도록 한다.
  */
-class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
+class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
     companion object {
         const val ACCEPT = 1 // Event 선언은 0보다 큰 숫자만 가능
         const val STOP = 2
@@ -105,7 +105,7 @@ class CoServer(private val handlerFactory: () -> CoHandlers): CoSelectable {
     }
 
     private suspend fun onAccept(event: Event) {
-        val connection = CoConnection(event.param as SocketChannel, handlerFactory.invoke())
+        val connection = CoConnection(event.param as SocketChannel, handlersFactory.invoke())
         connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
         Event.release(event) // ACCEPT 이벤트는 param이 항상 null이 아니다. 따라서 항상 release되어야 한다.

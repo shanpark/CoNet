@@ -1,7 +1,5 @@
-import io.github.shanpark.buffers.ReadBuffer
-import io.github.shanpark.conet.CoClient
-import io.github.shanpark.conet.CoHandlers
-import io.github.shanpark.conet.CoServer
+import com.github.shanpark.conet.CoClient
+import com.github.shanpark.conet.CoServer
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test

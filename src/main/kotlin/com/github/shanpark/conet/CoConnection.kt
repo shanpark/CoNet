@@ -1,12 +1,12 @@
-package io.github.shanpark.conet
+package com.github.shanpark.conet
 
-import io.github.shanpark.buffers.Buffer
-import io.github.shanpark.buffers.ReadBuffer
-import io.github.shanpark.conet.util.Event
-import io.github.shanpark.conet.util.off
-import io.github.shanpark.conet.util.on
-import io.github.shanpark.services.coroutine.CoroutineService
-import io.github.shanpark.services.coroutine.EventLoopCoTask
+import com.github.shanpark.buffers.Buffer
+import com.github.shanpark.buffers.ReadBuffer
+import com.github.shanpark.conet.util.Event
+import com.github.shanpark.conet.util.off
+import com.github.shanpark.conet.util.on
+import com.github.shanpark.services.coroutine.CoroutineService
+import com.github.shanpark.services.coroutine.EventLoopCoTask
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel

@@ -1,4 +1,4 @@
-package io.github.shanpark.conet
+package com.github.shanpark.conet
 
 /**
  * CoHandlers 객체의 codecChain을 구성하는 codec 객체를 위한 interface.

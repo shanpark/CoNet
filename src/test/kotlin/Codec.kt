@@ -1,7 +1,7 @@
-import io.github.shanpark.buffers.Buffer
-import io.github.shanpark.buffers.ReadBuffer
-import io.github.shanpark.conet.CoCodec
-import io.github.shanpark.conet.CoConnection
+import com.github.shanpark.buffers.Buffer
+import com.github.shanpark.buffers.ReadBuffer
+import com.github.shanpark.conet.CoCodec
+import com.github.shanpark.conet.CoConnection
 
 class StringCodec: CoCodec {
     override suspend fun encode(conn: CoConnection, inObj: Any): Any {

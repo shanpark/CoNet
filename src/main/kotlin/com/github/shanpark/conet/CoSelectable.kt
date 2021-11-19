@@ -1,4 +1,4 @@
-package io.github.shanpark.conet
+package com.github.shanpark.conet
 
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey

@@ -1,8 +1,8 @@
-package io.github.shanpark.conet.util
+package com.github.shanpark.conet.util
 
-import io.github.shanpark.conet.CoConnection
-import io.github.shanpark.conet.CoServer
-import io.github.shanpark.services.util.EventPool
+import com.github.shanpark.conet.CoConnection
+import com.github.shanpark.conet.CoServer
+import com.github.shanpark.services.util.EventPool
 
 /**
  * CoNet framework 내부적으로 사용되는 Event 객체 클래스.
