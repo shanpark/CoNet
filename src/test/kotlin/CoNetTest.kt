@@ -1,4 +1,5 @@
 import com.github.shanpark.conet.CoClient
+import com.github.shanpark.conet.CoHandlers
 import com.github.shanpark.conet.CoServer
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
@@ -6,6 +7,21 @@ import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
 
 class CoNetTest {
+
+    @Test
+    @DisplayName("Yahoo client connect/stop Test")
+    internal fun connectStop() {
+        val client = CoClient(CoHandlers())
+            .connect(InetSocketAddress("localhost", 2323))
+
+        Thread.sleep(100)
+        assertThat(client.isRunning()).isTrue
+
+        Thread.sleep(100)
+        client.stop().await()
+        assertThat(client.isRunning()).isFalse
+    }
+
     @Test
     @DisplayName("Basic server/client Test")
     internal fun basic() {
@@ -16,6 +32,8 @@ class CoNetTest {
         CoClient(handlers)
             .connect(InetSocketAddress("localhost", 2323))
             .await()
+
+        assertThat(server.isRunning()).isTrue
 
         server.stop().await()
         assertThat(handlers.sb.toString()).isEqualTo("(Connected)(Hi)(Hi)(Hi)(Hi)(Hi)(Closed)")
@@ -37,11 +55,11 @@ class CoNetTest {
                 val client = CoClient(TestHandlers(PACKET_COUNT))
                     .connect(InetSocketAddress("localhost", 2323))
                 clientList.add(client)
-                Thread.sleep(0)
+                Thread.sleep(5)
             }
             println("All client started. (client: ${clientList.size})")
 
-            Thread.sleep(10)
+            Thread.sleep(100)
             assertThat(EchoHandlers.connCount.get()).isEqualTo(CLIENT_MAX)
             assertThat(TestHandlers.connCount.get()).isEqualTo(CLIENT_MAX)
 

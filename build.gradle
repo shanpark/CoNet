@@ -8,7 +8,7 @@ publishing {
         mavenJava(MavenPublication) {
             groupId = 'com.github.shanpark'
             artifactId = 'conet'
-            version = '0.0.2'
+            version = '0.0.3'
 
             from components.java
         }
@@ -21,7 +21,7 @@ repositories {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.5.31"
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.5.31'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2'
     implementation 'com.github.shanpark:services:0.0.7'
     implementation 'com.github.shanpark:buffers:0.0.8'

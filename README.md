@@ -1,6 +1,6 @@
 # CoNet
 
-[![](https://jitpack.io/v/shanpark/CoNet.svg)](https://jitpack.io/#shanpark/CoNet)
+[![](https://jitpack.io/v/shanpark/conet.svg)](https://jitpack.io/#shanpark/conet)
 
 ## Usage
 
@@ -118,6 +118,7 @@ CoClient(SomeHandlers())
 
 To install the library add:
 
+* Gradle
 ```gradle
 repositories { 
    ...
@@ -125,6 +126,19 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.shanpark:conet:0.0.2'
+    implementation 'com.github.shanpark:conet:0.0.3'
+}
+```
+
+* Gradle(Kotlin)
+```gradle
+repositories { 
+   ...
+   maven { url = uri("https://jitpack.io") }
+
+}
+
+dependencies {
+    implementation('com.github.shanpark:conet:0.0.3')
 }
 ```

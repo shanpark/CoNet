@@ -113,6 +113,8 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
 
     private fun onStop() {
         service.stop()
+
+        CoSelector.unregister(this)
         channel.close()
     }
 

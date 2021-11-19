@@ -2,6 +2,7 @@ package com.github.shanpark.conet
 
 import kotlinx.coroutines.runBlocking
 import java.nio.channels.Selector
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 모든 CoSelectable 객체들이 공동으로 사용하는 단 하나의 Selector 객체를 관리하고
@@ -9,14 +10,77 @@ import java.nio.channels.Selector
  *
  * selected key는 handleSelectedKey()를 호출하여 전달하며 CoSelectable 객체는 Selector가 바로 다음
  * selection을 수행할 수 있도록 가능한 빠르게 key를 처리하고 리턴해야 한다.
+ *
+ * 생성된 Selector 객체를 최초 access할 때 selection thread는 생성되어 시작된다. 그리고나서 등록된 키가
+ * 하나도 없을 때 thread는 자동으로 종료된다.
  */
 object CoSelector {
+
+    private class SelectorWrapper {
+        val selector: Selector by lazy { startSelector() }
+        val registerRequestList: MutableList<RegisterRequest> = mutableListOf()
+
+        fun register(selectable: CoSelectable, interestKeys: Int) {
+            synchronized(registerRequestList) {
+                registerRequestList.add(RegisterRequest(selectable, interestKeys))
+            }
+            selector.wakeup()
+        }
+
+        fun unregister(selectable: CoSelectable) {
+            selectable.channel.keyFor(selector)?.cancel()
+        }
+
+        fun wakeup() {
+            selector.wakeup()
+        }
+
+        /**
+         * selector를 생성하여 반환하고, 실제 select() 작업을 수행하는 스레드도 생성한다.
+         * 최초에 selector를 access할 때 한 번만 호출된다.
+         *
+         * 여기서 생성된 selector는 모든 CoSelectable 객체가 함께 사용한다. 마지막 키가 등록해제되면
+         * thread는 종료된다. 하지만 selectorWrapper에는 새로운 SelectorWrapper 객체를 생성해서 지정해놓기 때문에
+         * 이후에 selector를 다시 access하는 경우가 발생하면 lazy binding에 의하여 다시 thread가 생성되어
+         * 실행될 것이다.
+         */
+        private fun startSelector(): Selector {
+            Thread {
+                runBlocking {
+                    do {
+                        selector.select()
+
+                        val it = selector.selectedKeys().iterator()
+                        while (it.hasNext()) {
+                            val key = it.next()
+                            it.remove()
+                            (key.attachment() as CoSelectable).handleSelectedKey(key)
+                        }
+
+                        if (registerRequestList.isNotEmpty()) {
+                            synchronized(registerRequestList) {
+                                for (request in registerRequestList)
+                                    internalRegister(request)
+                                registerRequestList.clear()
+                            }
+                        }
+                    } while(selector.keys().isNotEmpty())
+
+                    selectorWrapper.set(SelectorWrapper()) // replace with new one. and this thread exit.
+                }
+            }.start()
+
+            return Selector.open()
+        }
+
+        private fun internalRegister(request: RegisterRequest) {
+            request.selectable.selectionKey = request.selectable.channel.register(selector, request.interestOpts, request.selectable)
+        }
+    }
+
     private class RegisterRequest(val selectable: CoSelectable, val interestOpts: Int)
 
-    private val registerRequestList: MutableList<RegisterRequest> = mutableListOf()
-    private val selector: Selector by lazy {
-        startSelector()
-    }
+    private var selectorWrapper = AtomicReference(SelectorWrapper())
 
     /**
      * CoSelectable 객체를 관심 ops와 함께 CoSelector에 등록한다. 등록이 완료되면 CoSelectable객체의
@@ -28,17 +92,15 @@ object CoSelector {
      * 먼저 non-blocking 모드로 호출한 후에 register()를 호출하여 등록해주도록 한다.
      */
     fun register(selectable: CoSelectable, interestKeys: Int) {
-        synchronized(registerRequestList) {
-            registerRequestList.add(RegisterRequest(selectable, interestKeys))
-        }
-        selector.wakeup()
+        selectorWrapper.get().register(selectable, interestKeys)
     }
 
     /**
      * 등록된 CoSelectable 객체를 등록 해제 시킨다.
      */
     fun unregister(selectable: CoSelectable) {
-        selectable.channel.keyFor(selector)?.cancel()
+        selectorWrapper.get().unregister(selectable)
+        selectorWrapper.get().wakeup()
     }
 
     /**
@@ -47,46 +109,6 @@ object CoSelector {
      * 변경하고나서 Selector가 이를 인식하도록 하기 위해 주로 호출한다.
      */
     fun wakeup() {
-        selector.wakeup()
-    }
-
-    /**
-     * selector를 생성하여 반환하고, 실제 select() 작업을 수행하는 스레드도 생성한다.
-     * 최초에 selector를 access할 때 한 번만 호출된다.
-     *
-     * 여기서 생성된 selector는 모든 CoSelectable 객체가 함께 사용하고 생성된 스레드도
-     * process의 종료 시 까지 계속 수행된다.
-     */
-    private fun startSelector(): Selector {
-        val selector = Selector.open()
-
-        Thread {
-            runBlocking {
-                while (true) {
-                    CoSelector.selector.select()
-
-                    val it = CoSelector.selector.selectedKeys().iterator()
-                    while (it.hasNext()) {
-                        val key = it.next()
-                        it.remove()
-                        (key.attachment() as CoSelectable).handleSelectedKey(key)
-                    }
-
-                    if (registerRequestList.isNotEmpty()) {
-                        synchronized(registerRequestList) {
-                            for (request in registerRequestList)
-                                internalRegister(request)
-                            registerRequestList.clear()
-                        }
-                    }
-                }
-            }
-        }.start()
-
-        return selector
-    }
-
-    private fun internalRegister(request: RegisterRequest) {
-        request.selectable.selectionKey = request.selectable.channel.register(selector, request.interestOpts, request.selectable)
+        selectorWrapper.get().wakeup()
     }
 }
