@@ -125,6 +125,6 @@ repositories {
 }
 
 dependencies {
-    implementation 'io.github.shanpark:CoNet:0.0.2'
+    implementation 'com.github.shanpark:conet:0.0.2'
 }
 ```
