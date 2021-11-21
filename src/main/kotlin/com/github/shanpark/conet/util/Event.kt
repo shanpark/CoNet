@@ -18,11 +18,19 @@ class Event(var type: Int, var param: Any? = null) {
         val CLOSED = Event(CoConnection.CLOSED)
         val STOP = Event(CoServer.STOP)
 
+        const val USER = 1000
         const val ERROR = -1
 
         fun newEvent(type: Int, param: Any): Event {
             val event = eventPool.get()
             event.type = type
+            event.param = param
+            return event
+        }
+
+        fun newUserEvent(param: Any?): Event {
+            val event = eventPool.get()
+            event.type = USER
             event.param = param
             return event
         }
@@ -38,6 +46,6 @@ class Event(var type: Int, var param: Any? = null) {
             eventPool.ret(event)
         }
 
-        private val eventPool: EventPool<Event> = EventPool({ Event(ERROR) }, 100)
+        private val eventPool: EventPool<Event> = EventPool({ Event(ERROR) }, 1000)
     }
 }

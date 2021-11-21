@@ -39,6 +39,10 @@ object CoSelector {
          * selector를 생성하여 반환하고, 실제 select() 작업을 수행하는 스레드도 생성한다.
          * 최초에 selector를 access할 때 한 번만 호출된다.
          *
+         * thread 내부에서는 exception 처리를 전혀 하지 않으므로 특정 handler 등에서 발생하는 exception은
+         * 반드시 handler내부에서 알아서 처리해야 한다. 만약 처리되지 않은 excepion이 전파된다면 thread는
+         * 즉시 중단되고 selection이 동작하지 않으므로 모든 socket 작업 또한 중단된다.
+         *
          * 여기서 생성된 selector는 모든 CoSelectable 객체가 함께 사용한다. 마지막 키가 등록해제되면
          * thread는 종료된다. 하지만 selectorWrapper에는 새로운 SelectorWrapper 객체를 생성해서 지정해놓기 때문에
          * 이후에 selector를 다시 access하는 경우가 발생하면 lazy binding에 의하여 다시 thread가 생성되어

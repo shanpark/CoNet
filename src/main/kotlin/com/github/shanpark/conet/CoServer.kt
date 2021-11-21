@@ -1,7 +1,6 @@
 package com.github.shanpark.conet
 
 import com.github.shanpark.conet.util.Event
-import com.github.shanpark.conet.util.log
 import com.github.shanpark.services.coroutine.CoroutineService
 import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
@@ -83,7 +82,8 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
     /**
      * CoServer의 key에는 OP_ACCEPT만 발생한다.
      *
-     * 이 메소드에서는 어떤 exception도 발생시켜서는 안된다.
+     * 필요한 작업을 빠르게 처리하고 가능한 빨리 리턴하는 것이 좋다.
+     * 내부적으로 발생하는 모든 exception은 전파되어서는 안되고 반드시 처리한 후에 리턴해야 한다.
      */
     override suspend fun handleSelectedKey(key: SelectionKey) {
         try {
@@ -97,10 +97,14 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
     }
 
     private suspend fun onEvent(event: Event) {
-        when (event.type) {
-            ACCEPT -> onAccept(event)
-            STOP -> onStop()
-            Event.ERROR -> onError(event)
+        try {
+            when (event.type) {
+                ACCEPT -> onAccept(event)
+                STOP -> onStop()
+                Event.ERROR -> onError(event)
+            }
+        } catch (e: Throwable) {
+            onError(e)
         }
     }
 
@@ -119,9 +123,15 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
     }
 
     private fun onError(event: Event) {
-        log("CoServer.onError()")
-        // server channel의 accept()가 에러나는 경우이다.
-        (event.param as Throwable).printStackTrace()
+        onError(event.param as Throwable)
         Event.release(event) // ERROR 이벤트는 param이 항상 null이 아니다. 따라서 항상 release되어야 한다.
+    }
+
+    private fun onError(cause: Throwable) {
+        try {
+            cause.printStackTrace() // server 자체는 사용자 handler가 없다. 따라서 현재는 그냥 stack trace 만 출력한다.
+        } catch (e: Throwable) {
+            e.printStackTrace() // onError에서 excepion이 발생한다면 무한 재귀가 될 수 있기 때문에 여기서 처리한다.
+        }
     }
 }

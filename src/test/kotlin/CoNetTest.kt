@@ -36,7 +36,7 @@ class CoNetTest {
         assertThat(server.isRunning()).isTrue
 
         server.stop().await()
-        assertThat(handlers.sb.toString()).isEqualTo("(Connected)(Hi)(Hi)(Hi)(Hi)(Hi)(Closed)")
+        assertThat(handlers.sb.toString()).isEqualTo("(Connected)(Hi)(Hi)(Hi)(Hi)(Hi)(User)(Closed)")
     }
 
     @Test

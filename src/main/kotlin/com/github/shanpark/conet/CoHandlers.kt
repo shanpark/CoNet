@@ -5,6 +5,7 @@ typealias OnRead = suspend (conn: CoConnection, inObj: Any) -> Unit
 typealias OnClosed = suspend (conn: CoConnection) -> Unit
 typealias OnError = suspend (conn: CoConnection, e: Throwable) -> Unit
 typealias OnIdle = suspend (conn: CoConnection) -> Unit
+typealias OnUser = suspend (conn: CoConnection, param: Any?) -> Unit
 
 /**
  * 각 connection에서 발생하는 이벤트를 처리하는 클래스.
@@ -21,6 +22,7 @@ open class CoHandlers {
     var onReadHandler: OnRead = ::onRead
     var onClosedHandler: OnClosed = ::onClosed
     var onErrorHandler: OnError = ::onError
+    var onUserHandler: OnUser = ::onUser
     var onIdleHandler: OnIdle = ::onIdle
 
     var codecChain: MutableList<CoCodec> = mutableListOf()
@@ -62,6 +64,14 @@ open class CoHandlers {
      * @param cause 에러를 발생시킨 exception 객체.
      */
     open suspend fun onError(conn: CoConnection, cause: Throwable) {}
+
+    /**
+     * 사용자 정의 이벤트가 전송되면 호출되는 handler 함수.
+     *
+     * @param conn CoConnection 객체.
+     * @param param 사용자 이벤트로 보내진 parameter 객체.
+     */
+    open suspend fun onUser(conn: CoConnection, param: Any?) {}
 
     /**
      * idleTimeout 속성에 지정된 시간(ms) 동안 어떤 handler도 호출되지 않으면 호출되는 handler 함수.

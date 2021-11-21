@@ -46,9 +46,9 @@ open class CoConnection(final override val channel: SocketChannel, private val h
 
     /**
      * CoServer에서 새로운 접속을 accept()한 후 CoConnection객체를 생성하고 호출해주는 메소드이다.
-     * 접속이 맺어진 후 최초에 한 번만 호출해준다.
+     * 접속이 맺어진 후 최초에 한 번만 호출된다.
      */
-    open suspend fun connected() {
+    internal suspend fun connected() {
         task.sendEvent(Event.CONNECTED)
     }
 
@@ -76,10 +76,21 @@ open class CoConnection(final override val channel: SocketChannel, private val h
     }
 
     /**
+     * 사용자 이벤트를 전송한다.
+     * CoHandlers 의 onUserHandler가 호출된다. 다른 이벤트와 마찬가지로 coroutine 서비스 내에서 실행된다.
+     *
+     * @param param onUserHandler 로 전달되는 parameter 객체.
+     */
+    suspend fun sendUserEvent(param: Any?) {
+        task.sendEvent(Event.newUserEvent(param))
+    }
+
+    /**
      * CoSelectable 인터페이스 구현.
      * CoSelector의 thread에서만 호출되며 Selector에 OP_READ, OP_WRITE, OP_CONNECT가 발생하면 호출된다.
      *
-     * 일단 channel에 해당 key가 다시 발생하지 않도록 처리를 즉시해야 하고 가능한 빨리 리턴하는 것이 좋다.
+     * 내부 coroutine 서비스에서 처리하도록 하기 때문에 일단 channel에 해당 이벤트가 다시 발생하지 않도록
+     * 처리를 즉시해야 하고 가능한 빨리 리턴하는 것이 좋다.
      * 내부적으로 발생하는 모든 exception은 전파되어서는 안되고 반드시 처리한 후에 리턴해야 한다.
      *
      * @param key selector에 의해 select된 key.
@@ -99,7 +110,7 @@ open class CoConnection(final override val channel: SocketChannel, private val h
                 }
             }
         } catch (e: Throwable) {
-            task.sendEvent(Event.newErrorEvent(e))
+            task.sendEvent(Event.newErrorEvent(e)) // 다른 thread이므로 event로 보내야 한다.
         }
     }
 
@@ -120,6 +131,7 @@ open class CoConnection(final override val channel: SocketChannel, private val h
                 CLOSE -> onClose()
                 CLOSED -> onClosed()
                 Event.ERROR -> onError(event)
+                Event.USER -> onUser(event)
             }
         } catch (e: Throwable) {
             onError(e)
@@ -217,6 +229,11 @@ open class CoConnection(final override val channel: SocketChannel, private val h
         Event.release(event) // ERROR 이벤트는 항상 param이 null이 아니며 따라서 항상 release되어야 한다.
     }
 
+    private suspend fun onUser(event: Event) {
+        handlers.onUserHandler.invoke(this, event.param)
+        Event.release(event)
+    }
+
     private suspend fun onIdle() {
         try {
             handlers.onIdleHandler.invoke(this)
@@ -232,7 +249,11 @@ open class CoConnection(final override val channel: SocketChannel, private val h
      * 하지만 현재는 service가 스스로 exception을 발생시킬 일은 없다.
      */
     private suspend fun onError(cause: Throwable) {
-        handlers.onErrorHandler.invoke(this, cause)
+        try {
+            handlers.onErrorHandler.invoke(this, cause)
+        } catch (e: Throwable) {
+            e.printStackTrace() // onError에서 발생한 exception을 다시 전파하면 무한 재귀 현상이 나올 수 있다.
+        }
     }
 
     /**

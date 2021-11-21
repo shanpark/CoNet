@@ -1,6 +1,5 @@
 import com.github.shanpark.conet.CoConnection
 import com.github.shanpark.conet.CoHandlers
-import com.github.shanpark.conet.util.log
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -65,7 +64,7 @@ class TestHandlers(private val packetCount: Int): CoHandlers() {
 
         delay(100)
         if (readCounter > packetCount) {
-            conn.close()
+            conn.sendUserEvent("(User)")
         } else {
             conn.write("(Hi)")
             writeCounter++
@@ -77,8 +76,13 @@ class TestHandlers(private val packetCount: Int): CoHandlers() {
         sb.append("(Closed)")
     }
 
+    override suspend fun onUser(conn: CoConnection, param: Any?) {
+        sb.append(param)
+        conn.close()
+    }
+
     override suspend fun onError(conn: CoConnection, cause: Throwable) {
-        log("Client OnError() - write counter:$writeCounter, read counter:$readCounter")
+        println("Client OnError() - write counter:$writeCounter, read counter:$readCounter")
         cause.printStackTrace()
     }
 }

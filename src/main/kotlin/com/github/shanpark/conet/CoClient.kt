@@ -1,5 +1,6 @@
 package com.github.shanpark.conet
 
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
 import java.nio.channels.SelectionKey
@@ -13,14 +14,6 @@ import java.nio.channels.SocketChannel
  * @param handlers connection에서 발생하는 이벤트 처리를 구현한 CoHandlers 객체.
  */
 class CoClient(handlers: CoHandlers): CoConnection(SocketChannel.open(), handlers) {
-
-    /**
-     * CoClient 객체를 통해서는 호출하면 안된다.
-     * CoServer 객체가 client 연결을 accept 한 후 호출해주는 메소드이다.
-     */
-    override suspend fun connected() {
-        throw UnsupportedOperationException("connected() method is for CoServer.")
-    }
 
     /**
      * CoClient 객체로 하여금 서버에 연결 요청을 하도록 하는 메소드이다.
