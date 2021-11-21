@@ -1,14 +1,16 @@
-import com.github.shanpark.conet.CoConnection
-import com.github.shanpark.conet.CoHandlers
+import com.github.shanpark.conet.CoTcp
+import com.github.shanpark.conet.CoUdp
+import com.github.shanpark.conet.TcpHandlers
+import com.github.shanpark.conet.UdpHandlers
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * CoHandler subclass implementation 샘플.
+ * TcpHandler subclass implementation 샘플.
  * 이렇게 구현하면 각 connection의 상태를 가질 수 있으며 모든 핸들러는 하나의 coroutine에서
  * 실행되므로 동기화 문제도 신경쓸 필요가 없음.
  */
-class EchoHandlers: CoHandlers() {
+class EchoHandlers: TcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0) // EchoHandlers의 connection 갯수
     }
@@ -18,24 +20,24 @@ class EchoHandlers: CoHandlers() {
         codecChain.add(ParenthesesCodec())
     }
 
-    override suspend fun onConnected(conn: CoConnection) {
+    override suspend fun onConnected(conn: CoTcp) {
         connCount.incrementAndGet()
     }
 
-    override suspend fun onRead(conn: CoConnection, inObj: Any) {
+    override suspend fun onRead(conn: CoTcp, inObj: Any) {
         conn.write(inObj)
     }
 
-    override suspend fun onClosed(conn: CoConnection) {
+    override suspend fun onClosed(conn: CoTcp) {
         connCount.decrementAndGet()
     }
 
-    override suspend fun onError(conn: CoConnection, cause: Throwable) {
+    override suspend fun onError(conn: CoTcp, cause: Throwable) {
         cause.printStackTrace()
     }
 }
 
-class TestHandlers(private val packetCount: Int): CoHandlers() {
+class TestHandlers(private val packetCount: Int): TcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0)
     }
@@ -50,14 +52,14 @@ class TestHandlers(private val packetCount: Int): CoHandlers() {
         codecChain.add(ParenthesesCodec())
     }
 
-    override suspend fun onConnected(conn: CoConnection) {
+    override suspend fun onConnected(conn: CoTcp) {
         connCount.incrementAndGet()
         delay(100)
         conn.write("(Connected)")
         writeCounter++
     }
 
-    override suspend fun onRead(conn: CoConnection, inObj: Any) {
+    override suspend fun onRead(conn: CoTcp, inObj: Any) {
         val str = inObj as String
         sb.append(str)
         readCounter++
@@ -71,18 +73,57 @@ class TestHandlers(private val packetCount: Int): CoHandlers() {
         }
     }
 
-    override suspend fun onClosed(conn: CoConnection) {
+    override suspend fun onClosed(conn: CoTcp) {
         connCount.decrementAndGet()
         sb.append("(Closed)")
     }
 
-    override suspend fun onUser(conn: CoConnection, param: Any?) {
+    override suspend fun onUser(conn: CoTcp, param: Any?) {
         sb.append(param)
         conn.close()
     }
 
-    override suspend fun onError(conn: CoConnection, cause: Throwable) {
+    override suspend fun onError(conn: CoTcp, cause: Throwable) {
         println("Client OnError() - write counter:$writeCounter, read counter:$readCounter")
+        cause.printStackTrace()
+    }
+}
+
+/**
+ * UdpHandler subclass implementation 샘플.
+ * 이렇게 구현하면 각 connection의 상태를 가질 수 있으며 모든 핸들러는 하나의 coroutine에서
+ * 실행되므로 동기화 문제도 신경쓸 필요가 없음.
+ */
+class PingPongHandlers: UdpHandlers() {
+    companion object {
+        var connCount = AtomicInteger(0) // EchoHandlers의 connection 갯수
+    }
+
+    private var readCount = 0
+
+    init {
+        codecChain.add(UdpStringCodec())
+    }
+
+    override suspend fun onConnected(conn: CoUdp) {
+        connCount.incrementAndGet()
+    }
+
+    override suspend fun onRead(conn: CoUdp, inObj: Any) {
+        readCount++
+        delay(100)
+
+        if (readCount >= 100)
+            conn.close()
+        else
+            conn.write(inObj)
+    }
+
+    override suspend fun onClosed(conn: CoUdp) {
+        connCount.decrementAndGet()
+    }
+
+    override suspend fun onError(conn: CoUdp, cause: Throwable) {
         cause.printStackTrace()
     }
 }

@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicReference
  * 생성된 Selector 객체를 최초 access할 때 selection thread는 생성되어 시작된다. 그리고나서 등록된 키가
  * 하나도 없을 때 thread는 자동으로 종료된다.
  */
-object CoSelector {
+internal object CoSelector {
 
     private class SelectorWrapper {
         val selector: Selector by lazy { startSelector() }

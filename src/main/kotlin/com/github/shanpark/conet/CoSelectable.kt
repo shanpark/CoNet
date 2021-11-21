@@ -6,7 +6,7 @@ import java.nio.channels.SelectionKey
 /**
  * CoSelector에 등록하기 위해 구현해야 하는 인터페이스.
  */
-interface CoSelectable {
+internal interface CoSelectable {
     /**
      * selector에 등록될 channel 객체.
      */

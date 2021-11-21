@@ -1,6 +1,7 @@
 package com.github.shanpark.conet
 
 import com.github.shanpark.conet.util.Event
+import com.github.shanpark.conet.util.EventId
 import com.github.shanpark.services.coroutine.CoroutineService
 import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
@@ -19,12 +20,7 @@ import java.nio.channels.SocketChannel
  * @param handlersFactory CoHandlers 객체를 생성하여 반환하는 factory 메소드. 새로운 CoConnection 객체를 생성할 때 마다
  *                       호출하여 새로운 CoConnection 객체가 사용하도록 한다.
  */
-class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
-    companion object {
-        const val ACCEPT = 1 // Event 선언은 0보다 큰 숫자만 가능
-        const val STOP = 2
-    }
-
+class CoServer(private val handlersFactory: () -> CoHandlers<CoTcp>): CoSelectable {
     override var channel: ServerSocketChannel = ServerSocketChannel.open()
     override lateinit var selectionKey: SelectionKey
 
@@ -89,7 +85,7 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
         try {
             if (key.isValid && key.isAcceptable) {
                 @Suppress("BlockingMethodInNonBlockingContext")
-                task.sendEvent(Event.newEvent(ACCEPT, channel.accept()))
+                task.sendEvent(Event.newEvent(EventId.ACCEPT, channel.accept()))
             }
         } catch (e: Exception) {
             task.sendEvent(Event.newErrorEvent(e))
@@ -98,10 +94,11 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
 
     private suspend fun onEvent(event: Event) {
         try {
-            when (event.type) {
-                ACCEPT -> onAccept(event)
-                STOP -> onStop()
-                Event.ERROR -> onError(event)
+            when (event.id) {
+                EventId.ACCEPT -> onAccept(event)
+                EventId.STOP -> onStop()
+                EventId.ERROR -> onError(event)
+                else -> onError(IllegalStateException())
             }
         } catch (e: Throwable) {
             onError(e)
@@ -109,7 +106,7 @@ class CoServer(private val handlersFactory: () -> CoHandlers): CoSelectable {
     }
 
     private suspend fun onAccept(event: Event) {
-        val connection = CoConnection(event.param as SocketChannel, handlersFactory.invoke())
+        val connection = CoTcp(event.param as SocketChannel, handlersFactory.invoke())
         connection.connected() // connection start.
         CoSelector.register(connection, SelectionKey.OP_READ)
         Event.release(event) // ACCEPT 이벤트는 param이 항상 null이 아니다. 따라서 항상 release되어야 한다.

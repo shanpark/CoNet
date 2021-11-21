@@ -1,43 +1,54 @@
 package com.github.shanpark.conet.util
 
-import com.github.shanpark.conet.CoConnection
-import com.github.shanpark.conet.CoServer
-import com.github.shanpark.services.util.EventPool
+import com.github.shanpark.services.coroutine.CoPool
+
+enum class EventId(val value: Int) {
+    ACCEPT(1),
+    FINISH_CONNECT(2),
+    CONNECTED(3),
+    READ(4),
+    WRITE(5),
+    SEND(6),
+    CLOSE(7),
+    CLOSED(8),
+    STOP(9),
+
+    USER(1000),
+
+    ERROR(-1);
+}
 
 /**
  * CoNet framework 내부적으로 사용되는 Event 객체 클래스.
  */
-class Event(var type: Int, var param: Any? = null) {
+internal class Event(var id: EventId, var param: Any? = null) {
     companion object {
         // parameter가 필요없는 event는 미리 만들어 놓고 singleton 형태로 재활용한다.
-        val FINISH_CONNECT = Event(CoConnection.FINISH_CONNECT)
-        val CONNECTED = Event(CoConnection.CONNECTED)
-        val READ = Event(CoConnection.READ)
-        val WRITE = Event(CoConnection.WRITE) // write 이벤트는 param이 있을 때도 있고 없을 때도 있다. 없을 때만 이걸 사용한다.
-        val CLOSE = Event(CoConnection.CLOSE)
-        val CLOSED = Event(CoConnection.CLOSED)
-        val STOP = Event(CoServer.STOP)
+        val FINISH_CONNECT = Event(EventId.FINISH_CONNECT)
+        val CONNECTED = Event(EventId.CONNECTED)
+        val READ = Event(EventId.READ)
+        val WRITE = Event(EventId.WRITE) // write 이벤트는 param이 있을 때도 있고 없을 때도 있다. 없을 때만 이걸 사용한다.
+        val CLOSE = Event(EventId.CLOSE)
+        val CLOSED = Event(EventId.CLOSED)
+        val STOP = Event(EventId.STOP)
 
-        const val USER = 1000
-        const val ERROR = -1
-
-        fun newEvent(type: Int, param: Any): Event {
+        fun newEvent(id: EventId, param: Any): Event {
             val event = eventPool.get()
-            event.type = type
+            event.id = id
             event.param = param
             return event
         }
 
         fun newUserEvent(param: Any?): Event {
             val event = eventPool.get()
-            event.type = USER
+            event.id = EventId.USER
             event.param = param
             return event
         }
 
         fun newErrorEvent(param: Any): Event {
             val event = eventPool.get()
-            event.type = ERROR
+            event.id = EventId.ERROR
             event.param = param
             return event
         }
@@ -46,6 +57,6 @@ class Event(var type: Int, var param: Any? = null) {
             eventPool.ret(event)
         }
 
-        private val eventPool: EventPool<Event> = EventPool({ Event(ERROR) }, 1000)
+        private val eventPool = CoPool({ Event(EventId.ERROR) }, 1000)
     }
 }
