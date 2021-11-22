@@ -1,6 +1,7 @@
 import com.github.shanpark.buffers.Buffer
 import com.github.shanpark.buffers.ReadBuffer
 import com.github.shanpark.conet.*
+import java.net.DatagramPacket
 
 class StringCodec: TcpCodec {
     override suspend fun encode(handlers: TcpHandlers, inObj: Any): Any? {
@@ -30,14 +31,13 @@ class ParenthesesCodec: TcpCodec {
 
 class UdpStringCodec: UdpCodec {
     override suspend fun encode(handlers: UdpHandlers, inObj: Any): Any? {
-        val buffer = inObj as ReadBuffer
-        return buffer.readString(buffer.readableBytes)
+        val datagram = inObj as DatagramPacket
+        return String(datagram.data, datagram.offset, datagram.length)
     }
 
     override suspend fun decode(handlers: UdpHandlers, outObj: Any): Any {
         val str = outObj as String
-        val buffer = Buffer()
-        buffer.writeString(str)
-        return buffer
+        val byteArray = str.toByteArray()
+        return DatagramPacket(byteArray, 0, byteArray.size)
     }
 }

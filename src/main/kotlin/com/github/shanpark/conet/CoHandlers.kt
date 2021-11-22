@@ -1,7 +1,10 @@
 package com.github.shanpark.conet
 
+import java.net.SocketAddress
+
 typealias OnConnected<T> = suspend (conn: T) -> Unit
 typealias OnRead<T> = suspend (conn: T, inObj: Any) -> Unit
+typealias OnReadFrom<T> = suspend (conn: T, inObj: Any, peerAddress: SocketAddress) -> Unit
 typealias OnClosed<T> = suspend (conn: T) -> Unit
 typealias OnError<T> = suspend (conn: T, e: Throwable) -> Unit
 typealias OnIdle<T> = suspend (conn: T) -> Unit
@@ -20,6 +23,7 @@ open class CoHandlers<CONN> {
 
     var onConnectedHandler: OnConnected<CONN> = ::onConnected
     var onReadHandler: OnRead<CONN> = ::onRead
+    var onReadFromHandler: OnReadFrom<CONN> = ::onReadFrom
     var onClosedHandler: OnClosed<CONN> = ::onClosed
     var onErrorHandler: OnError<CONN> = ::onError
     var onUserHandler: OnUser<CONN> = ::onUser
@@ -37,17 +41,34 @@ open class CoHandlers<CONN> {
     /**
      * 읽을 수 있는 data가 도착했을 때 호출되는 handler 함수.
      *
-     * codecChain이 구성되지 않은 경우에는 inObj 파라미터는 ReadBuffer 객체가 전달된다.
-     * 도착한 데이터를 읽어서 사용하지 않으면 buffer의 내용은 계속 누적된 채로 전달되므로 적절히 읽어서 사용해야 한다.
+     * codecChain이 구성되지 않은 경우 inObj 파라미터는 TCP 연결일 때는 ReadBuffer 객체가 전달되고
+     * UDP 연결일 때는 DatagramPacket이 전달된다.
      *
-     * codecChain이 구성된 경우 codecChain을 거져서 최종적으로 생성된 객체가 전달된다.
-     * codecChain을 거쳐서 생성된 객체는 다음 onRead() 호출에서는 받을 수 없으므로 객체를 받으면 적절히 처리해야 한다.
+     * UDP 연결에서는 connect가 이루어진 상태에서만 이 함수가 호출된다.
+     *
+     * codecChain이  구성되어 있다면 마지막 codec이 반환한 데이터가 inObj로 전달된다.
+     * TCP 연결일 때 도착한 데이터를 읽어서 사용하지 않으면 buffer의 내용은 계속 누적되므로 적절히 읽어서 사용해야 한다.
      *
      * @param conn CoConnection 객체.
      * @param inObj codecChain이 구성된 경우에는 codecChain을 거쳐서 생성된 객체. codecChain이 구성되지 않은 경우 도착한 데이터를
      *              담고 있는 ReadBuffer 객체.
      */
     open suspend fun onRead(conn: CONN, inObj: Any) {}
+
+    /**
+     * 읽을 수 있는 data가 도착했을 때 호출되는 handler 함수.
+     * UDP 전용 handler 함수이며 connect 상태가 아닐 때 데이터가 도착하면 호출된다.
+     *
+     * codecChain이 구성되지 않은 경우에는 inObj 파라미터는 DatagramPacket 객체가 전달된다.
+     *
+     * codecChain이 구성된 경우 codecChain을 거져서 최종적으로 생성된 객체가 전달된다.
+     *
+     * @param conn CoConnection 객체.
+     * @param inObj codecChain이 구성된 경우에는 codecChain을 거쳐서 생성된 객체. codecChain이 구성되지 않은 경우 도착한 데이터를
+     *              담고 있는 ReadBuffer 객체.
+     * @param peerAddress 데이터를 보낸 peer의 주소.
+     */
+    open suspend fun onReadFrom(conn: CONN, inObj: Any, peerAddress: SocketAddress) {}
 
     /**
      * 접속이 종료되면 마지막으로 호출되는 handler 함수.

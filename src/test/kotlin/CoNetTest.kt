@@ -1,6 +1,7 @@
 import com.github.shanpark.conet.CoClient
 import com.github.shanpark.conet.CoHandlers
 import com.github.shanpark.conet.CoServer
+import com.github.shanpark.conet.CoUdp
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -8,7 +9,7 @@ import java.net.InetSocketAddress
 
 class CoNetTest {
 
-    @Test
+//    @Test
     @DisplayName("Yahoo client connect/stop Test")
     internal fun connectStop() {
         val client = CoClient(CoHandlers())
@@ -22,7 +23,7 @@ class CoNetTest {
         assertThat(client.isRunning()).isFalse
     }
 
-    @Test
+//    @Test
     @DisplayName("Basic server/client Test")
     internal fun basic() {
         val server = CoServer { EchoHandlers() }
@@ -39,7 +40,7 @@ class CoNetTest {
         assertThat(handlers.sb.toString()).isEqualTo("(Connected)(Hi)(Hi)(Hi)(Hi)(Hi)(User)(Closed)")
     }
 
-    @Test
+//    @Test
     @DisplayName("1000 client Test")
     internal fun client1000() {
         val CLIENT_MAX = 1000
@@ -88,5 +89,19 @@ class CoNetTest {
         } finally {
             server.stop().await()
         }
+    }
+
+    @Test
+    @DisplayName("UDP Test")
+    internal fun udp() {
+        val udpServer = CoUdp(UdpServerHandlers(10))
+        udpServer.bind(InetSocketAddress(2222))
+        println("UDP Server bound.")
+
+        val udpClient = CoUdp(UdpClientHandlers(9))
+        udpClient.connect(InetSocketAddress("localhost", 2222))
+
+        udpClient.await()
+        udpServer.stop().await()
     }
 }

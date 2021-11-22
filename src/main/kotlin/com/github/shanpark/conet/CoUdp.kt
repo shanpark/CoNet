@@ -34,6 +34,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
 
     /**
      * 파라미터로 전달된 local 주소에 binding한다.
+     * binding된 주소로 수신되는 데이터를 받을 수 있다.
      *
      * @param address binding할 local 주소 객체.
      */
@@ -46,15 +47,53 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
 
     /**
      * 파라미터로 전달된 remote 주소에 connect한다.
-     * read(), write() 메소드를 사용하기 위해서는 connect()를 호출해야 한다.
+     * connect가 되고나면 연결된 peer와 주고받는 것만 가능하며 다른 주소로 주고 받는 건 안된다.
+     * 따라서 read(), write() 메소드를 사용해서 데이터를 송수신하는 게 좋다.
+     *
+     * connect() 전에 반드시 bind()를 해야하는 건 아니다.
+     * bind()가 호출되지 않은 상태에서 connect()가 호출되면 자동 할당된 포트에 binding이 된다.
      *
      * @param address binding할 remote 주소 객체.
      */
     fun connect(address: InetSocketAddress): CoUdp {
         channel.connect(address)
-        CoSelector.register(this, SelectionKey.OP_READ) // register는 bind() 후에 해줘야 한다.
+        if (!channel.isRegistered)
+            CoSelector.register(this, SelectionKey.OP_READ) // register는 bind() 후에 해줘야 한다.
+        runBlocking { task.sendEvent(Event.CONNECTED) }
 
         return this
+    }
+
+    /**
+     * 파라미터로 전달된 remote 주소에 connect한다.
+     * send(), receive()와 달리 read(), write() 메소드를 사용하기 위해서는 connect()를 호출해야 한다.
+     *
+     * disconnect가 되고 난 후라도 send(), receive()를 이용해서 어디로든 데이터를 주고 받을 수 있지만
+     * read(), write()는 사용할 수 없다.
+     */
+    fun disconnect(): CoUdp {
+        channel.disconnect()
+        // TODO DISCONNECTED가 발생되어야 하나??
+
+        return this
+    }
+
+    /**
+     * peer로 보낼 객체를 write한다. send()는 suspend 함수이므로 handler 함수가 아니라면 sendTo()를
+     * 사용해서 데이터를 전송해야 한다.
+     *
+     * 보내는 객체는 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로 DatagramPacket 객체로
+     * 변환되어야 한다.
+     *
+     * ReadBuffer 객체를 write하면 buffer의 내용은 모두 읽혀진다.
+     *
+     * @param outObj peer로 보낼 데이터 객체.
+     * @param peer 데이터를 수신할 peer의 주소 객체.
+     */
+    fun sendTo(outObj: Any, peer: SocketAddress) {
+        runBlocking {
+            send(outObj, peer)
+        }
     }
 
     /**
@@ -69,7 +108,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     }
 
     /**
-     * CoClient의 접속이 종료되어 내부 coroutine 서비스가 종료될 때 까지 대기한다.
+     * CoUdp의 내부 coroutine 서비스가 종료될 때 까지 대기한다.
      * 파라미터로 지정된 시간(ms)이 지나면 서비스가 종료되지 않았더라도 함수가 반환된다.
      * default 값인 0이 지정되면 서비스가 종료될 때 까지 무한 대기한다.
      *
@@ -89,9 +128,12 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     }
 
     /**
-     * peer로 보낼 객체를 write한다.
-     * 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로 ReadBuffer 객체로
-     * 변환되어야 한다.
+     * peer로 보낼 객체를 write한다. peer 주소를 따로 받지 않기 때문에 connect()로 연결된 상태에서만 사용가능하다.
+     * suspend함수 이므로 handler 함수 내에서 사용해야 한다.
+     *
+     * 보내는 객체는 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로
+     * DatagramPacket 객체로 변환되어야 한다.
+     *
      * ReadBuffer 객체를 write하면 buffer의 내용은 모두 읽혀진다.
      *
      * @param outObj peer로 보낼 데이터 객체.
@@ -104,9 +146,12 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     }
 
     /**
-     * peer로 보낼 객체를 write한다.
-     * 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로 ReadBuffer 객체로
-     * 변환되어야 한다.
+     * peer로 보낼 객체를 write한다. connect() 되지 않은 상태에서 특정 peer 주소를 지정하여 데이터를 보낼 때
+     * 사용한다. connect()가 된 상태에서는 연결된 주소 이외의 다른 주소로는 보낼 수 없다.
+     *
+     * 보내는 객체는 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로
+     * DatagramPacket 객체로 변환되어야 한다.
+     *
      * ReadBuffer 객체를 write하면 buffer의 내용은 모두 읽혀진다.
      *
      * @param outObj peer로 보낼 데이터 객체.
@@ -146,7 +191,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
                 if (key.isReadable) {
                     selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
                     task.sendEvent(Event.READ)
-                } else if (key.isWritable) {
+                } else if (key.isWritable) { // TODO 이어서 보내기 로직이 아직 구현 안됨.
                     selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
                     task.sendEvent(Event.WRITE) // 계속 이어서 진행.
                 }
@@ -159,6 +204,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     private suspend fun onEvent(event: Event) {
         try {
             when (event.id) {
+                EventId.CONNECTED -> onConnected()
                 EventId.READ -> onRead()
                 EventId.WRITE -> onWrite(event)
                 EventId.SEND -> onSend(event)
@@ -173,26 +219,30 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
         }
     }
 
-    private suspend fun onRead() {
-        READ_LOOP@
-        while (true) {
-            val packet: DatagramPacket? =
-                if (channel.isConnected)
-                    internalRead()
-                else
-                    internalReceive()
-            if (packet == null) // null이 반환되면 읽기 중단.
-                break@READ_LOOP
+    private suspend fun onConnected() {
+        handlers.onConnectedHandler.invoke(this)
+    }
 
+    private suspend fun onRead() {
+        val packet: DatagramPacket? =
+            if (channel.isConnected)
+                internalRead()
+            else
+                internalReceive()
+        if (packet != null) { // null이 반환되면 중단.
             var inObj: Any? = packet
             for (codec in handlers.codecChain) {
                 inObj = codec.encode(handlers, inObj!!)
                 if (inObj == null)
-                    continue@READ_LOOP
+                    break
             }
-            handlers.onReadHandler.invoke(this, inObj!!)
+            if (inObj != null) {
+                if (channel.isConnected)
+                    handlers.onReadHandler.invoke(this, inObj)
+                else
+                    handlers.onReadFromHandler.invoke(this, inObj, packet.socketAddress)
+            }
         }
-
         selectionKey.on(SelectionKey.OP_READ)
         CoSelector.wakeup() // 여기서는 wakeup 필요.
     }
@@ -266,19 +316,21 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
 
     private fun internalRead(): DatagramPacket? {
         val read = channel.read(ByteBuffer.wrap(readBuffer, 0, readBuffer.size))
-        return if (read >= 0)
+        return if (read > 0)
             DatagramPacket(readBuffer, 0, read)
-        else
+        else // 읽은 바이트 수가 0이면 다음 packet은 없는 것이다.
             null
     }
 
     private fun internalReceive(): DatagramPacket? {
         val byteBuffer = ByteBuffer.wrap(readBuffer, 0, readBuffer.size)
         val peerAddress = channel.receive(byteBuffer)
-        return if (peerAddress != null)
+        return if (peerAddress != null) {
+            byteBuffer.flip()
             DatagramPacket(readBuffer, 0, byteBuffer.remaining(), peerAddress)
-        else
+        } else {
             null
+        }
     }
 
     private fun internalWrite(packet: DatagramPacket) {
