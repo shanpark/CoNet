@@ -9,7 +9,6 @@ import com.github.shanpark.services.coroutine.CoroutineService
 import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
 import java.net.DatagramPacket
-import java.net.InetSocketAddress
 import java.net.SocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
@@ -17,7 +16,7 @@ import java.nio.channels.SelectionKey
 
 class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
 
-    class SendData(val obj: Any, val peer: SocketAddress)
+    class SendData(val obj: Any, val peer: SocketAddress?)
 
     override val channel: DatagramChannel = DatagramChannel.open()
 
@@ -27,6 +26,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     private val service = CoroutineService().start(task)
 
     private val readBuffer: ByteArray = ByteArray(64 * 1024)
+    private val outBuffer: MutableList<DatagramPacket> = mutableListOf()
 
     init {
         channel.configureBlocking(false)
@@ -38,9 +38,10 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
      *
      * @param address binding할 local 주소 객체.
      */
-    fun bind(address: InetSocketAddress): CoUdp {
+    fun bind(address: SocketAddress): CoUdp {
         channel.bind(address)
-        CoSelector.register(this, SelectionKey.OP_READ) // register는 bind() 후에 해줘야 한다.
+        if (!channel.isRegistered)
+            CoSelector.register(this, SelectionKey.OP_READ) // register는 bind() 후에 해줘야 한다.
 
         return this
     }
@@ -55,7 +56,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
      *
      * @param address binding할 remote 주소 객체.
      */
-    fun connect(address: InetSocketAddress): CoUdp {
+    fun connect(address: SocketAddress): CoUdp {
         channel.connect(address)
         if (!channel.isRegistered)
             CoSelector.register(this, SelectionKey.OP_READ) // register는 bind() 후에 해줘야 한다.
@@ -73,14 +74,13 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
      */
     fun disconnect(): CoUdp {
         channel.disconnect()
-        // TODO DISCONNECTED가 발생되어야 하나??
 
         return this
     }
 
     /**
-     * peer로 보낼 객체를 write한다. send()는 suspend 함수이므로 handler 함수가 아니라면 sendTo()를
-     * 사용해서 데이터를 전송해야 한다.
+     * peer로 보낼 객체를 write한다. send()와 달리 suspend 함수가 아니다. 따라서 handler 함수 내에서 호출하는 게 아니라면
+     * sendTo()를 사용해서 데이터를 전송해야 한다.
      *
      * 보내는 객체는 어떤 객체든지 상관없지만 CoHandlers 객체에 구성된 codec chain을 거쳐서 최종적으로 DatagramPacket 객체로
      * 변환되어야 한다.
@@ -91,9 +91,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
      * @param peer 데이터를 수신할 peer의 주소 객체.
      */
     fun sendTo(outObj: Any, peer: SocketAddress) {
-        runBlocking {
-            send(outObj, peer)
-        }
+        runBlocking { send(outObj, peer) }
     }
 
     /**
@@ -191,7 +189,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
                 if (key.isReadable) {
                     selectionKey.off(SelectionKey.OP_READ) // OP_READ off. wakeup은 필요없다.
                     task.sendEvent(Event.READ)
-                } else if (key.isWritable) { // TODO 이어서 보내기 로직이 아직 구현 안됨.
+                } else if (key.isWritable) {
                     selectionKey.off(SelectionKey.OP_WRITE) // OP_WRITE off. wakeup은 필요없다.
                     task.sendEvent(Event.WRITE) // 계속 이어서 진행.
                 }
@@ -224,13 +222,13 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     }
 
     private suspend fun onRead() {
-        val packet: DatagramPacket? =
+        val datagram: DatagramPacket? =
             if (channel.isConnected)
                 internalRead()
             else
                 internalReceive()
-        if (packet != null) { // null이 반환되면 중단.
-            var inObj: Any? = packet
+        if (datagram != null) { // null이 반환되면 중단.
+            var inObj: Any? = datagram
             for (codec in handlers.codecChain) {
                 inObj = codec.encode(handlers, inObj!!)
                 if (inObj == null)
@@ -240,7 +238,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
                 if (channel.isConnected)
                     handlers.onReadHandler.invoke(this, inObj)
                 else
-                    handlers.onReadFromHandler.invoke(this, inObj, packet.socketAddress)
+                    handlers.onReadFromHandler.invoke(this, inObj, datagram.socketAddress)
             }
         }
         selectionKey.on(SelectionKey.OP_READ)
@@ -248,12 +246,17 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     }
 
     private suspend fun onWrite(event: Event) {
-        var obj: Any = event.param!!
-        for (codec in handlers.codecChain.asReversed())
-            obj = codec.decode(handlers, obj)
-        if (obj is DatagramPacket) // 최종 obj는 반드시 DatagramPacket이어야 한다.
-            internalWrite(obj)
-        Event.release(event) // param이 not null인 경우 release 해줘야 한다.
+        if (event.param != null) { // retry일 때는 무조건 WRITE로 오며 peer 주소는 datagram에 저장되어있으므로 retry도 문제 없다.
+            var obj: Any = event.param!!
+            for (codec in handlers.codecChain.asReversed())
+                obj = codec.decode(handlers, obj)
+            if (obj is DatagramPacket) { // 최종 obj는 반드시 DatagramPacket이어야 한다.
+                outBuffer.add(obj)
+            }
+            Event.release(event) // param이 not null인 경우 release 해줘야 한다.
+        }
+
+        sendOutBuffer()
     }
 
     private suspend fun onSend(event: Event) {
@@ -264,9 +267,11 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
             obj = codec.decode(handlers, obj)
         if (obj is DatagramPacket) { // 최종 obj는 반드시 DatagramPacket이어야 한다.
             obj.socketAddress = peer
-            internalSend(obj)
+            outBuffer.add(obj)
         }
         Event.release(event) // param이 not null인 경우 release 해줘야 한다.
+
+        sendOutBuffer()
     }
 
     private suspend fun onClose() {
@@ -333,11 +338,31 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
         }
     }
 
-    private fun internalWrite(packet: DatagramPacket) {
-        channel.write(ByteBuffer.wrap(packet.data, packet.offset, packet.length))
+    private fun sendOutBuffer() {
+        val it = outBuffer.iterator()
+        while (it.hasNext()) {
+            val datagram = it.next()
+            val written = if (datagram.address == null)
+                internalWrite(datagram)
+            else
+                internalSend(datagram)
+            if (written <= 0) // datagram 전송은 all or nothing이다. 따라서 재시도는 0인 경우만이다.
+                break
+            else
+                it.remove()
+        }
+
+        if (outBuffer.isNotEmpty() && selectionKey.isValid) { // 다 못보냈으면 OP_WRITE를 켜서 retry할 수 있도록 한다.
+            selectionKey.on(SelectionKey.OP_WRITE)
+            CoSelector.wakeup() // 여기서는 wakeup 필요.
+        }
     }
 
-    private fun internalSend(packet: DatagramPacket) {
-        channel.send(ByteBuffer.wrap(packet.data, packet.offset, packet.length), packet.socketAddress)
+    private fun internalWrite(packet: DatagramPacket): Int {
+        return channel.write(ByteBuffer.wrap(packet.data, packet.offset, packet.length))
+    }
+
+    private fun internalSend(packet: DatagramPacket): Int {
+        return channel.send(ByteBuffer.wrap(packet.data, packet.offset, packet.length), packet.socketAddress)
     }
 }
