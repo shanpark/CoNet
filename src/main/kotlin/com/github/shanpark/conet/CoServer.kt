@@ -5,7 +5,7 @@ import com.github.shanpark.conet.util.EventId
 import com.github.shanpark.services.coroutine.CoroutineService
 import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
-import java.net.InetSocketAddress
+import java.net.SocketAddress
 import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
@@ -37,7 +37,7 @@ class CoServer(private val handlersFactory: () -> CoHandlers<CoTcp>): CoSelectab
      *
      * @param address binding할 주소 객체.
      */
-    fun start(address: InetSocketAddress): CoServer {
+    fun start(address: SocketAddress): CoServer {
         if (!channel.isRegistered) {
             channel.bind(address)
             CoSelector.register(this, SelectionKey.OP_ACCEPT) // register는 bind() 후에 해줘야 한다.

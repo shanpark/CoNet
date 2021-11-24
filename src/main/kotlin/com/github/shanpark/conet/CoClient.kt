@@ -1,7 +1,7 @@
 package com.github.shanpark.conet
 
 import kotlinx.coroutines.runBlocking
-import java.net.InetSocketAddress
+import java.net.SocketAddress
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 
@@ -24,7 +24,7 @@ class CoClient(handlers: CoHandlers<CoTcp>): CoTcp(SocketChannel.open(), handler
      *
      * @return 자기 자신(CoClient 객체)을 반환.
      */
-    fun connect(address: InetSocketAddress): CoClient {
+    fun connect(address: SocketAddress): CoClient {
         if (!channel.isRegistered) {
             channel.connect(address)
             CoSelector.register(this, SelectionKey.OP_CONNECT) // 등록은 connect() 후에 해줘야 한다.

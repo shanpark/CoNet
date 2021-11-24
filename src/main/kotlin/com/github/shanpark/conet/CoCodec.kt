@@ -11,8 +11,8 @@ package com.github.shanpark.conet
  * - UDP용 코덱인 경우
  *   inbound 시에는 DatagramPacket에서 특정 타입의 객체로 변환(encode)을 수행하여 CoHandlers의 onRead() 핸들러로
  *   전달하고 outbound 시에는 write() 메소드로 전달된 객체를 serialize하여 최종적으로 DatagramPacket 객체를 생성해서
- *   반환한다. UDP는 TCP와 달리 전달된 DatagramPacket을 모두 사용해야 하며 flow가 끝나고 나면 모든 사용되지 않은
- *   data는 모두 버려진다.
+ *   반환한다. UDP는 TCP와 달리 flow가 끝나고 나면 모든 사용되지 않은 data는 모두 버려지기 때문에 전달된 DatagramPacket을
+ *   모두 사용해야 한다.
  *
  * inbound 시에는 codecChain의 앞에 추가된 codec부터 차례대로 거쳐서 마지막 codec이 반환하는 객체가 CoHandler의
  * onRead() 핸들러로 전달되고 outbound 시에는 반대로 codecChain의 마지막 codec부터 앞쪽으로 차례대로 거쳐서
@@ -47,7 +47,8 @@ interface CoCodec<HANDLERS> {
      * @param handlers CoConnection 객체.
      * @param outObj 이전 codec 객체가 반환한 객체. 맨 마지막으로 호출되는 codec은 ReadBuffer 객체를 반환해야 한다.
      *
-     * @return 다음 codec으로 전달할 객체. 마지막 codec은 ReadBuffer 객체를 반환해야 한다.
+     * @return 다음 codec으로 전달할 객체. 마지막 codec은 ReadBuffer 또는 DatagramPacket 객체를 반환해야 한다.
+     *         encode()와 달리 null을 반환할 수 없으며 반드시 다음 codec으로 전달할 깨체를 반환해야 한다.
      */
     suspend fun decode(handlers: HANDLERS, outObj: Any): Any
 }
