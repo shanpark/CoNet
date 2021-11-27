@@ -49,11 +49,10 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         }
 
         println("decode() called [${buffer.readableBytes}]")
-        inNetBuffer.clear()
+//        inNetBuffer.clear()
         if (buffer.readableBytes > inNetBuffer.capacity())
             inNetBuffer = ByteBuffer.allocate(buffer.readableBytes)
         buffer.read(inNetBuffer)
-        inNetBuffer.flip()
 
         val sslEngineResult = doUnwrap(conn)
         if (isHandshaking) {
@@ -61,7 +60,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                 SSLEngineResult.Status.OK -> {
                     // TODO check handshaking 중에는 inAppBuffer로 나오는 건 아무것도 없어야 맞다.
                     //  따라서 아무것도 할 것도 없다. 이게 맞다면 여기서 inAppBuffer는 비어있어야 한다.
-                    assert(!inAppBuffer.hasRemaining())
+                    assert(inAppBuffer.position() == 0)
                 }
                 SSLEngineResult.Status.CLOSED -> {
                     doShutdown(conn)
@@ -87,9 +86,11 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
             }
         }
 
-        val decodec = Buffer(inAppBuffer.remaining())
-        decodec.write(inAppBuffer)
-        return decodec
+        inAppBuffer.flip()
+        val inBuffer = Buffer(inAppBuffer.remaining())
+        inBuffer.write(inAppBuffer)
+        inAppBuffer.compact()
+        return inBuffer
     }
 
     override suspend fun encode(conn: CoTcp, outObj: Any): Any {
@@ -101,7 +102,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
             outAppBuffer.put(buffer.rArray, buffer.rOffset, written)
             buffer.rSkip(written)
         } while (buffer.isReadable)
-        outAppBuffer.flip()
 
         var sslEngineResult = doWrap(conn)
         if (isHandshaking) { // handshaking이 시작되었다. handshking이 시작되면 outAppBuffer의 내용은 handshaking이 끝날 때까지 그대로 있다.
@@ -209,7 +209,9 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     private fun doWrap(conn: CoTcp): SSLEngineResult {
         var sslEngineResult: SSLEngineResult
         while (true) {
+            outAppBuffer.flip()
             sslEngineResult = sslEngine.wrap(outAppBuffer, outNetBuffer)
+            outAppBuffer.compact()
             println("sslEngine.wrap() consumed = ${sslEngineResult.bytesConsumed()}")
             isHandshaking = (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.FINISHED) &&
                 (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
@@ -265,8 +267,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                 SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
                     println("doUnwrap() -> BUFFER_UNDERFLOW")
                     val netSize: Int = sslEngine.session.packetBufferSize
-                    if (netSize > inAppBuffer.capacity()) {
-                        val newBuf = ByteBuffer.allocate(netSize + inNetBuffer.position())
+                    if (netSize > inAppBuffer.capacity()) { // reference 문서에 이렇게 되어있는데 좀 이상하네.. dst 크기보다 큰데 src를 늘리네..
+                        val newBuf = ByteBuffer.allocate(netSize)
                         inNetBuffer.flip()
                         newBuf.put(inNetBuffer)
                         inNetBuffer = newBuf
