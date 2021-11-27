@@ -242,20 +242,20 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
     private fun doUnwrap(conn: CoTcp): SSLEngineResult {
         var sslEngineResult: SSLEngineResult
-        while (true) {
-            if (conn.channel.read(inNetBuffer) < 0) {
-                return SSLEngineResult(SSLEngineResult.Status.CLOSED, SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING, 0, 0)
-            }
-            inNetBuffer.flip()
 
+        // inNetBuffer에는 이미 data가 있을 수도 있다. 그런 경우 1 바이트도 못 읽고 지나가는 경우가 있는 데 정상이다.
+        if (conn.channel.read(inNetBuffer) < 0)
+            throw SSLException("The socket was closed during NEED_UNWRAP processing.")
+
+        while (true) {
+            inNetBuffer.flip()
             sslEngineResult = sslEngine.unwrap(inNetBuffer, inAppBuffer)
             inNetBuffer.compact()
-
             isHandshaking = (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.FINISHED) &&
                     (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
-
             when (sslEngineResult.status) {
                 SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+                    println("doUnwrap() -> BUFFER_OVERFLOW")
                     val appSize: Int = sslEngine.session.applicationBufferSize
                     val newBuf = ByteBuffer.allocate(appSize + inAppBuffer.position())
                     inAppBuffer.flip()
@@ -263,12 +263,22 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     inAppBuffer = newBuf
                 }
                 SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
-                    val appSize: Int = sslEngine.session.packetBufferSize
-                    val newBuf = ByteBuffer.allocate(appSize + inNetBuffer.position())
-                    inNetBuffer.flip()
-                    newBuf.put(inNetBuffer)
-                    inNetBuffer = newBuf
-                    continue // read again
+                    println("doUnwrap() -> BUFFER_UNDERFLOW")
+                    val netSize: Int = sslEngine.session.packetBufferSize
+                    if (netSize > inAppBuffer.capacity()) {
+                        val newBuf = ByteBuffer.allocate(netSize + inNetBuffer.position())
+                        inNetBuffer.flip()
+                        newBuf.put(inNetBuffer)
+                        inNetBuffer = newBuf
+                    }
+                    // BUFFER_UNDERFLOW 에서는 적어도 1 바이트 이상 읽어야 계속하는 게 의미가 있다.
+                    while (true) {
+                        val read = conn.channel.read(inNetBuffer)
+                        if (read < 0)
+                            throw SSLException("The socket was closed during NEED_UNWRAP processing.")
+                        else if (read > 0)
+                            break
+                    }
                 }
                 SSLEngineResult.Status.OK -> {
                     break
@@ -315,6 +325,12 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
         // Close transport
         conn.channel.close()
+    }
+
+    private fun rawRead(conn: CoTcp, byteBuffer: ByteBuffer): Int { // inNetBuffer
+        val read = conn.channel.read(byteBuffer)
+        byteBuffer.flip()
+        return read
     }
 
     private suspend fun rawWrite(conn: CoTcp, byteBuffer: ByteBuffer) { // TODO check parameter가 무조건 outNetBuffer인 것 같은데...
