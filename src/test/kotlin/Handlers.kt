@@ -1,13 +1,15 @@
+import com.github.shanpark.buffers.Buffer
+import com.github.shanpark.buffers.ReadBuffer
 import com.github.shanpark.conet.CoTcp
 import com.github.shanpark.conet.CoUdp
 import com.github.shanpark.conet.TcpHandlers
 import com.github.shanpark.conet.UdpHandlers
+import com.github.shanpark.conet.codec.TlsCodec
 import kotlinx.coroutines.delay
 import java.lang.RuntimeException
-import java.net.DatagramPacket
-import java.net.InetSocketAddress
 import java.net.SocketAddress
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.ssl.SSLContext
 
 /**
  * TcpHandler subclass implementation 샘플.
@@ -175,5 +177,41 @@ class UdpClientHandlers(private val count: Int): UdpHandlers() {
     override suspend fun onError(conn: CoUdp, cause: Throwable) {
         cause.printStackTrace()
         conn.close()
+    }
+}
+
+
+class TlsHandlers(sslContext: SSLContext): TcpHandlers() {
+    init {
+        codecChain.add(TlsCodec(sslContext, true))
+    }
+
+    override suspend fun onConnected(conn: CoTcp) {
+        println("TLS OnConnected()")
+        val buffer = Buffer(1024)
+        buffer.writeString(
+        "GET / HTTP/1.1\r\nHost: www.daum.net\r\nConnection: keep-alive\r\nsec-ch-ua: \"Google Chrome\";v=\"95\", \"Chromium\";v=\"95\", \";Not A Brand\";v=\"99\"\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Linux\"\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\nSec-Fetch-Site: none\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-User: ?1\r\nSec-Fetch-Dest: document\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7\r\nCookie: webid=21a07c5e84db4035a7a5484bfba554fc; webid_ts=1576587166477; TIARA=MPAx4FPL_itX1rsC8ck7ctCDggnQihIKVW9CJXJsN9Lf9dMxOdjp2pdnATslBvWXfOn7xF2DSoC-dJjbBWxsYbevKmCMgOFB; _T_ANO=jGdlBEUMXkPJsWuSdZyRJ4/bZp7ENTPWZR1rz1d/Et7RNw2a/8GNIvgGpzc7FaDRphFzWVauVy259G8DcTyyVtvK0GpAHTcJr5cTQwZfaCkrOoyX7kxQY5Nz0CoTNVzgpz1SoyZkdcyr/qYWhANuctgP5/ikIvc8fBo8oupQyoasjd739FA1jgHxVOK/GdBR8TNfBiJtxMi1oyxiUdB8aCx9k7TI473hSiZ+zVj/9R+RTJsfrdlyz35IXB+At2vK/UM01M1DgQxS2d4pjvFZ+ukF8qv9lr7c5twB3ALKUVzKidU8D5ESv/SE9oe0X+hqkzSYgk3mDFmmrjcbCqUtPQ==; webid_sync=1637834700768\r\n\r\n"
+        )
+        conn.write(buffer)
+    }
+
+    override suspend fun onRead(conn: CoTcp, inObj: Any) {
+        println("TLS onRead()")
+        val buffer = inObj as ReadBuffer
+        val str = buffer.readString(buffer.readableBytes)
+        println("'$str'")
+    }
+
+    override suspend fun onClosed(conn: CoTcp) {
+        println("TLS onClosed()")
+    }
+
+    override suspend fun onUser(conn: CoTcp, param: Any?) {
+        println("TLS OnConnected()")
+    }
+
+    override suspend fun onError(conn: CoTcp, cause: Throwable) {
+        println("TLS OnError()")
+        cause.printStackTrace()
     }
 }

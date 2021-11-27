@@ -29,7 +29,7 @@ open class CoHandlers<CONN> {
     var onUserHandler: OnUser<CONN> = ::onUser
     var onIdleHandler: OnIdle<CONN> = ::onIdle
 
-    var codecChain: MutableList<CoCodec<CoHandlers<CONN>>> = mutableListOf()
+    var codecChain: MutableList<CoCodec<CONN>> = mutableListOf()
 
     /**
      * 접속이 이루어지면 가장 먼저 호출되는 handler 함수.

@@ -20,7 +20,7 @@ import kotlin.math.min
  * @param channel socketChannel 객체. CoSelectable 인터페이스 구현을 위해서 필요하다.
  * @param handlers connection에서 발생하는 이벤트 처리를 구현한 CoHandlers 객체.
  */
-open class CoTcp(final override val channel: SocketChannel, private val handlers: CoHandlers<CoTcp>): CoSelectable {
+open class CoTcp(final override val channel: SocketChannel, val handlers: CoHandlers<CoTcp>): CoSelectable {
     /**
      * CoSelectable 인터페이스 구현.
      */
@@ -154,7 +154,7 @@ open class CoTcp(final override val channel: SocketChannel, private val handlers
                     inBuffer.mark()
                     var inObj: Any = inBuffer
                     for (codec in handlers.codecChain)
-                        inObj = codec.encode(handlers, inObj)!! // null을 반환하면 즉시 loop 중단된다.
+                        inObj = codec.decode(this, inObj)!! // null을 반환하면 즉시 loop 중단된다.
                     handlers.onReadHandler.invoke(this, inObj)
                 } while (inBuffer.isReadable && (inBuffer.readableBytes != readableBytes))
                 inBuffer.compact() // marked state is invalidated
@@ -177,7 +177,7 @@ open class CoTcp(final override val channel: SocketChannel, private val handlers
         if (event.param != null) { // 계속 이어서 진행하는 경우에는 outObj가 null이다.
             var obj: Any = event.param!!
             for (codec in handlers.codecChain.asReversed())
-                obj = codec.decode(handlers, obj)
+                obj = codec.encode(this, obj)
             if (obj is ReadBuffer) // 최종 obj는 반드시 ReadBuffer이어야 한다.
                 outBuffers.add(obj)
 

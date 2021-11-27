@@ -14,7 +14,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 import java.nio.channels.SelectionKey
 
-class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
+class CoUdp(val handlers: CoHandlers<CoUdp>): CoSelectable {
 
     class SendData(val obj: Any, val peer: SocketAddress?)
 
@@ -230,7 +230,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
         if (datagram != null) { // null이 반환되면 중단.
             var inObj: Any? = datagram
             for (codec in handlers.codecChain) {
-                inObj = codec.encode(handlers, inObj!!)
+                inObj = codec.decode(this, inObj!!)
                 if (inObj == null)
                     break
             }
@@ -249,7 +249,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
         if (event.param != null) { // retry일 때는 무조건 WRITE로 오며 peer 주소는 datagram에 저장되어있으므로 retry도 문제 없다.
             var obj: Any = event.param!!
             for (codec in handlers.codecChain.asReversed())
-                obj = codec.decode(handlers, obj)
+                obj = codec.encode(this, obj)
             if (obj is DatagramPacket) { // 최종 obj는 반드시 DatagramPacket이어야 한다.
                 outBuffer.add(obj)
             }
@@ -264,7 +264,7 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
         val peer = sendData.peer
         var obj: Any = sendData.obj
         for (codec in handlers.codecChain.asReversed())
-            obj = codec.decode(handlers, obj)
+            obj = codec.encode(this, obj)
         if (obj is DatagramPacket) { // 최종 obj는 반드시 DatagramPacket이어야 한다.
             obj.socketAddress = peer
             outBuffer.add(obj)

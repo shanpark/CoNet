@@ -6,6 +6,9 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLContext
+import javax.net.ssl.X509TrustManager
 
 class CoNetTest {
 
@@ -91,7 +94,7 @@ class CoNetTest {
         }
     }
 
-    @Test
+//    @Test
     @DisplayName("UDP Test")
     internal fun udp() {
         val udpServer = CoUdp(UdpServerHandlers(10))
@@ -103,5 +106,28 @@ class CoNetTest {
 
         udpClient.await()
         udpServer.stop().await()
+    }
+
+    class BlindTrustManager: X509TrustManager {
+        override fun getAcceptedIssuers(): Array<X509Certificate>? {
+            return null
+        }
+
+        override fun checkClientTrusted(p0: Array<out X509Certificate>?, p1: String?) {
+        }
+
+        override fun checkServerTrusted(p0: Array<out X509Certificate>?, p1: String?) {
+        }
+    }
+
+    @Test
+    @DisplayName("TLS Test")
+    internal fun tls() {
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf(BlindTrustManager()), null)
+        val client = CoClient(TlsHandlers(sslContext))
+        client.connect(InetSocketAddress("www.daum.net", 443))
+
+        client.await()
     }
 }
