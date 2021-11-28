@@ -18,9 +18,26 @@ package com.github.shanpark.conet
  * onRead() 핸들러로 전달되고 outbound 시에는 반대로 codecChain의 마지막 codec부터 앞쪽으로 차례대로 거쳐서
  * 맨 앞의 codec의 encode() 메소드가 반환하는 객체(ReadBuffer or DatagramPacket)의 내용이 remote로 전송된다.
  *
+ * 맨 마지막 codec까지 거쳐서 최종적으롤 null이 아닌 객체를 생성해내면 남은 데이터로 (실제 데이터가 있건 없건) 계속해서
+ * 다시 처음부터 codec chain을 다시 시도하므로 모든 codec은 적절히 다음 codec으로 넘겨줄 데이터가 없는 시점을 판단하여
+ * null을 반환해야 다시 소켓에서 데이터를 읽어오는 작업으로 진행할 수 있다.
+ *
  * 항상 connection의 coroutine 서비스에서 호출되므로 모든 메소드는 suspend 함수이다.
  */
 interface CoCodec<CONN> {
+    /**
+     * 연결이 이루어진 직후에 호출된다.
+     * 특별히 연결 직후 코덱에서 초기화 해야 하는 작업이 있다면 여기서 해준다.
+     * UDP 처럼 연결이 없다면 호출되지 않을 수 있다.
+     *
+     * codec의 onConnected()는 CoHandlers의 onConnected() 직후에 호출된다.
+     *
+     * default로 아무 것도 하지 않는 메소드가 구현되어 있으므로 반드시 제공해야하는 것은 아니다.
+     *
+     * @param conn CoTcp 또는 CoUdp 객체.
+     */
+    suspend fun onConnected(conn: CONN) {}
+
     /**
      * inbound flow 에서 호출되는 메소드로서 이전 codec이 반환한 객체를 받아서 다음 codec으로 전달한
      * 객체를 생성 반환한다.
@@ -51,6 +68,17 @@ interface CoCodec<CONN> {
      *         encode()와 달리 null을 반환할 수 없으며 반드시 다음 codec으로 전달할 객체를 반환해야 한다.
      */
     suspend fun encode(conn: CONN, outObj: Any): Any
+
+    /**
+     * 접속 종료를 요청받은 경우에 호출된다.
+     * 연결을 끊기 전에 코덱에서 정리되어야 하는 작업이 있다면 여기서 해준다. 연결을 끊기 전에 peer와 shutdown 작업을
+     * 필요로하는 경우 유용하다. (TLS 연결 같은)
+     * 실제 연결이 끊어진 상태인지 알 수는 없으므로 반드시 연결 상태를 직접 체크해야 한다.
+     * default로 아무 것도 하지 않는 메소드가 구현되어 있으므로 반드시 제공해야하는 것은 아니다.
+     *
+     * @param conn CoTcp 또는 CoUdp 객체.
+     */
+    suspend fun onClose(conn: CONN) {}
 }
 
 /**

@@ -126,8 +126,10 @@ class CoNetTest {
         val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(null, arrayOf(BlindTrustManager()), null)
         val client = CoClient(TlsHandlers(sslContext))
-        client.connect(InetSocketAddress("www.daum.net", 443))
+        client.connect(InetSocketAddress(TlsHandlers.HOST, 443))
 
+//        Thread.sleep(1000 * 5)
+//        client.stop()
         client.await()
     }
 }

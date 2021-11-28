@@ -143,25 +143,27 @@ open class CoTcp(final override val channel: SocketChannel, val handlers: CoHand
 
     private suspend fun onConnected() {
         handlers.onConnectedHandler.invoke(this)
+
+        for (codec in handlers.codecChain)
+            codec.onConnected(this) // 코덱의 초기화 작업을 할 수 있도록 그냥 호출만 해주면 된다.
     }
 
     private suspend fun onRead() {
         val read = internalRead(inBuffer) // read from socket.
         if (read >= 0) {
-            try {
-                var readableBytes = -1
-                while (inBuffer.isReadable && (inBuffer.readableBytes != readableBytes)) {
-                    readableBytes = inBuffer.readableBytes
-                    inBuffer.mark()
-                    var inObj: Any = inBuffer
-                    for (codec in handlers.codecChain)
-                        inObj = codec.decode(this, inObj)!! // null을 반환하면 즉시 loop 중단된다.
-                    handlers.onReadHandler.invoke(this, inObj)
+            while (true) {
+                var inObj: Any? = inBuffer
+                for (codec in handlers.codecChain) {
+                    inObj = codec.decode(this, inObj!!) // null을 반환하면 즉시 loop 중단된다.
+                    if (inObj == null)
+                        break
                 }
-                inBuffer.compact() // marked state is invalidated
-            } catch (e: NullPointerException) {
-                inBuffer.reset()
+                if (inObj == null) // 최종적으로 null이 반환되었으면
+                    break // 중단하고 빠져나간다.
+                else
+                    handlers.onReadHandler.invoke(this, inObj)
             }
+            inBuffer.compact() // marked state is invalidated
 
             if (channel.isOpen && selectionKey.isValid) { // onReadHandler에서 이미 close되었을 수 있다.
                 selectionKey.on(SelectionKey.OP_READ)
@@ -202,14 +204,20 @@ open class CoTcp(final override val channel: SocketChannel, val handlers: CoHand
     }
 
     private suspend fun onClose() {
+        for (codec in handlers.codecChain)
+            codec.onClose(this) // 정리작업을 할 수 있도록 그냥 호출만 해주면 된다.
+
         // close()하기 전에 selector unregister를 먼저 해줘야 한다.
         // selector를 unregister하지 않았도 linux에서는 문제가 없지만 macOS에서는 channel을 close()할 때
-        // 가끔 무한 block되는 현상이 있다. 또한 close()를 하면서 selector에 발생하는 OP_READ도 신경쓸 필요가 없어진다.
-        // 따라서 반드시 close()하기 전에 먼저 selector를 unregister해주도록 한다.
+        // 가끔 무한 block되는 현상이 있다.
         CoSelector.unregister(this)
         @Suppress("BlockingMethodInNonBlockingContext")
         channel.close()
 
+        // close()를 호출하면 CLOSE 이벤트를 보내고 이벤트가 처리될 때 까지 약간의 시간 공백이 있는데 그 사이에 OP_READ가
+        // 발생해서 읽기를 요청하는 경우가 흔히 있다. 하지만 channel은 여기서 close되므로 모든 요청 event를 비워야 한다.
+        // 그리고 나서 CLOSED 이벤트를 보내어 onClose()가 호출될 수 있도록 한다.
+        task.clearEventQueue()
         task.sendEvent(Event.CLOSED) // 채널을 닫았으므로 CLOSED를 전송한다.
     }
 

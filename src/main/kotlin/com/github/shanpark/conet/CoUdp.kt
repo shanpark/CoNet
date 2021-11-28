@@ -16,7 +16,11 @@ import java.nio.channels.SelectionKey
 
 class CoUdp(val handlers: CoHandlers<CoUdp>): CoSelectable {
 
-    class SendData(val obj: Any, val peer: SocketAddress?)
+    /**
+     * send() 호출 시 target의 주소와 데이터를 모두 담아서 SEND 이벤트를 보낼 때 parameter로 같이 보내기 위해
+     * 사용되는 클래스이다.
+     */
+    private class SendData(val obj: Any, val peer: SocketAddress?)
 
     override val channel: DatagramChannel = DatagramChannel.open()
 
@@ -275,10 +279,17 @@ class CoUdp(val handlers: CoHandlers<CoUdp>): CoSelectable {
     }
 
     private suspend fun onClose() {
+        // close()하기 전에 selector unregister를 먼저 해줘야 한다.
+        // selector를 unregister하지 않았도 linux에서는 문제가 없지만 macOS에서는 channel을 close()할 때
+        // 가끔 무한 block되는 현상이 있다. (TCP에서만 발견되었지만 UDP도 해준다)
         CoSelector.unregister(this)
         @Suppress("BlockingMethodInNonBlockingContext")
         channel.close()
 
+        // close()를 호출하면 CLOSE 이벤트를 보내고 이벤트가 처리될 때 까지 약간의 시간 공백이 있는데 그 사이에 OP_READ가
+        // 발생해서 읽기를 요청하는 경우가 흔히 있다. 하지만 channel은 여기서 close되므로 모든 요청 event를 비워야 한다.
+        // 그리고 나서 CLOSED 이벤트를 보내어 onClose()가 호출될 수 있도록 한다.
+        task.clearEventQueue()
         task.sendEvent(Event.CLOSED) // 채널을 닫았으므로 CLOSED를 전송한다.
     }
 
