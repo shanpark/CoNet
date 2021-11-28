@@ -149,14 +149,15 @@ open class CoTcp(final override val channel: SocketChannel, val handlers: CoHand
         val read = internalRead(inBuffer) // read from socket.
         if (read >= 0) {
             try {
-                do {
-                    val readableBytes = inBuffer.readableBytes
+                var readableBytes = -1
+                while (inBuffer.isReadable && (inBuffer.readableBytes != readableBytes)) {
+                    readableBytes = inBuffer.readableBytes
                     inBuffer.mark()
                     var inObj: Any = inBuffer
                     for (codec in handlers.codecChain)
                         inObj = codec.decode(this, inObj)!! // null을 반환하면 즉시 loop 중단된다.
                     handlers.onReadHandler.invoke(this, inObj)
-                } while (inBuffer.isReadable && (inBuffer.readableBytes != readableBytes))
+                }
                 inBuffer.compact() // marked state is invalidated
             } catch (e: NullPointerException) {
                 inBuffer.reset()
