@@ -14,7 +14,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 import java.nio.channels.SelectionKey
 
-class CoUdp(val handlers: CoHandlers<CoUdp>): CoSelectable {
+class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
 
     /**
      * send() 호출 시 target의 주소와 데이터를 모두 담아서 SEND 이벤트를 보낼 때 parameter로 같이 보내기 위해

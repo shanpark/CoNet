@@ -39,12 +39,15 @@ interface CoCodec<CONN> {
     suspend fun onConnected(conn: CONN) {}
 
     /**
-     * inbound flow 에서 호출되는 메소드로서 이전 codec이 반환한 객체를 받아서 다음 codec으로 전달한
-     * 객체를 생성 반환한다.
-     * codec chain의 맨 앞에 있는 코덱은 inObj로 ReadBuffer를 받게 되어있으며
+     * inbound flow 에서 호출되는 메소드로서 이전 codec이 반환한 객체를 받아서 다음 codec으로 전달할 객체를 생성 반환한다.
+     * codec chain의 맨 앞에 있는 코덱은 inObj로 ReadBuffer 또는 DatagramPacket을 받게 되어있으며
      * 마지막 코덱은 최종적으로 onRead() 메소드에 전달할 객체를 생성하여 반환하여야 한다.
      * 최종 객체를 생성하기에 데이터가 부족하거나 여러가지 이유로 더 이상 codec chain의 encoding을
      * 진행할 필요가 없을 때에는 null을 반환한다.
+     *
+     * codec chain의 마지막까지 거쳐서 null이 아닌 객체가 반환되면 계속해서 다시 codec chain을 통한 decoding을 시도하므로
+     * decode() 메소드는 반드시 현재 codec에서의 중단 조건을 명확하게 구현하여 중단 조건이 발생하면 반드시 null을 반환하는 로직이
+     * 포함되어야 한다. 그렇지 못한 경우 무한 loop에 빠지게 된다.
      *
      * @param conn CoTcp 또는 CoUdp 객체.
      * @param inObj 이전 codec 객체가 반환한 객체. 맨 앞에 있는 codec은 ReadBuffer를 받는다.

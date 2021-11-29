@@ -20,11 +20,12 @@ import kotlin.math.min
  * @param channel socketChannel 객체. CoSelectable 인터페이스 구현을 위해서 필요하다.
  * @param handlers connection에서 발생하는 이벤트 처리를 구현한 CoHandlers 객체.
  */
-open class CoTcp(final override val channel: SocketChannel, val handlers: CoHandlers<CoTcp>): CoSelectable {
+open class CoTcp(final override val channel: SocketChannel, private val handlers: CoHandlers<CoTcp>): CoSelectable {
     /**
      * CoSelectable 인터페이스 구현.
      */
     override lateinit var selectionKey: SelectionKey
+    var eosDetected: Boolean = false
 
     private var task = EventLoopCoTask(::onEvent, handlers.idleTimeout, ::onIdle, ::onError)
     protected val service = CoroutineService().start(task)
@@ -172,6 +173,7 @@ open class CoTcp(final override val channel: SocketChannel, val handlers: CoHand
                 close()
             }
         } else {
+            eosDetected = true // 이후에 channel의 상태로는 eos가 감지된 상태를 알 수 없기 떄문에 설정해준다.
             close()
         }
     }

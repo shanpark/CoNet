@@ -6,7 +6,10 @@ import java.net.DatagramPacket
 class StringCodec: TcpCodec {
     override suspend fun decode(conn: CoTcp, inObj: Any): Any? {
         val buffer = inObj as ReadBuffer
-        return buffer.readString(buffer.readableBytes)
+        return if (buffer.isReadable)
+            buffer.readString(buffer.readableBytes)
+        else
+            null // codec chain 중단 조건. 모든 코덱은 중단조건을 명확하게 구현해야 한다.
     }
 
     override suspend fun encode(conn: CoTcp, outObj: Any): Any {
@@ -20,7 +23,10 @@ class StringCodec: TcpCodec {
 class ParenthesesCodec: TcpCodec {
     override suspend fun decode(conn: CoTcp, inObj: Any): Any? {
         val str = inObj as String
-        return "($str)"
+        return if (str.isNotBlank())
+            "($str)"
+        else
+            null // codec chain 중단 조건. 모든 코덱은 중단조건을 명확하게 구현해야 한다.
     }
 
     override suspend fun encode(conn: CoTcp, outObj: Any): Any {
@@ -32,7 +38,10 @@ class ParenthesesCodec: TcpCodec {
 class UdpStringCodec: UdpCodec {
     override suspend fun decode(conn: CoUdp, inObj: Any): Any? {
         val datagram = inObj as DatagramPacket
-        return String(datagram.data, datagram.offset, datagram.length)
+        return if (datagram.length > 0)
+            String(datagram.data, datagram.offset, datagram.length)
+        else
+            null
     }
 
     override suspend fun encode(conn: CoUdp, outObj: Any): Any {

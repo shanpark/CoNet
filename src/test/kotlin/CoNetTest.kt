@@ -5,10 +5,16 @@ import com.github.shanpark.conet.CoUdp
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.io.FileInputStream
+import java.io.InputStream
 import java.net.InetSocketAddress
+import java.security.KeyStore
+import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
+
 
 class CoNetTest {
 
@@ -120,16 +126,55 @@ class CoNetTest {
         }
     }
 
-    @Test
-    @DisplayName("TLS Test")
+//    @Test
+    @DisplayName("TLS Web Client Test")
     internal fun tls() {
         val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(null, arrayOf(BlindTrustManager()), null)
         val client = CoClient(TlsHandlers(sslContext))
         client.connect(InetSocketAddress(TlsHandlers.HOST, 443))
-
-//        Thread.sleep(1000 * 5)
-//        client.stop()
         client.await()
+    }
+
+    @Test
+    @DisplayName("TLS Server Test")
+    internal fun tlsServer() {
+        val keyfile = "./src/test/resources/cert.keystore"
+        val keystorePassword = "certpassword"
+        val keyPassword = "certpassword"
+
+        val keyStore = KeyStore.getInstance("JKS")
+        val keyStoreIS: InputStream = FileInputStream(keyfile)
+        keyStoreIS.use {
+            keyStore.load(it, keystorePassword.toCharArray())
+        }
+        val kmf: KeyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+        kmf.init(keyStore, keyPassword.toCharArray())
+        val keyManagers = kmf.keyManagers
+
+        // 서버용 SSLContext 생성
+        val serverSslContext = SSLContext.getInstance("TLSv1.3") // 그냥 "TLS"를 지정하면 1.2가 default다.
+        serverSslContext.init(keyManagers, arrayOf(BlindTrustManager()), SecureRandom())
+
+        // 서버 시작.
+        val server = CoServer { TlsEchoHandlers(serverSslContext) }
+            .start(InetSocketAddress(443))
+        println("TLS Server started.")
+
+        // 클라이언트용 SSLContext 생성
+        val clientSslContext = SSLContext.getInstance("TLSv1.3") // 그냥 "TLS"를 지정하면 1.2가 default다.
+        clientSslContext.init(null, arrayOf(BlindTrustManager()), null)
+
+        // 클라이언트 시작.
+        val handlers = TlsTestHandlers(clientSslContext, 5)
+        CoClient(handlers)
+            .connect(InetSocketAddress("localhost", 443))
+            .await()
+
+        assertThat(server.isRunning()).isTrue
+
+        server.stop().await()
+        assertThat(handlers.sb.toString()).isEqualTo("(Connected)(Hi)(Hi)(Hi)(Hi)(Hi)(User)(Closed)")
+        assertThat(server.isRunning()).isFalse
     }
 }
