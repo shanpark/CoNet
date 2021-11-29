@@ -195,11 +195,13 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
      */
     override suspend fun onClose(conn: CoTcp) {
         if (!sslEngine.isOutboundDone) { // isOutboundDone이면 이미 shutdown된 상태라고 볼 수 있다.
-            if (conn.eosDetected) {
+            if (conn.eosDetected) { // eos가 확실히 감지된 경우
                 try {
                     sslEngine.closeInbound() // 이미 socket 접속이 끊어진 걸로 판단된 상태라면 sslEngine에 알려준다.
+                    // closeInbound()가 호출된 이후에 (handshake, shutdown 처리용) 데이터 가 도착하면
+                    // SSLException(internal_error)이 발생한다. 그래서 eos가 확실히 감지된 경우에만 호출해야 한다.
                 } catch (e: SSLException) {
-                    // ignore 'no close_notify msg' exception
+                    // ignore 'without close_notify msg' exception
                 }
             }
 
