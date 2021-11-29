@@ -16,10 +16,10 @@ import javax.net.ssl.SSLException
 /* TODO
  *  - IO scope에서 실행해야 하는 로직들 검토해서 다시 재정비 해야함.
  *  - 특히 Buffer undereflow가 발생하면 loop를 여러 차례 돈다. 이건 모두 IO에서 해야 맞는 것 같다.
- *
  */
 /**
- *
+ * handshaking 중에는 inbound든 outbound든 app 데이터가 전혀 사용(consume)되지 않는다. handshaking이 끝나고 나서
+ * outNetBuffer, inAppBuffer에 데이터가 생성되어 있다면 다음 코덱에서 처리할 수 있도록 넘겨주면 된다.
  */
 class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
@@ -29,13 +29,17 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     }
 
     private val sslEngine: SSLEngine = sslContext.createSSLEngine()
-    private var isHandshaking: Boolean = false
+    private var isHandshaking: Boolean = false // handshaking의 시작이 감지되면 true로 설정되고 끝나면 false로 설정된다.
+
+    // outbound 시에 outAppBuffer -> wrap() -> outNetBuffer 순서로 데이터가 흘러간다.
     private var outAppBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
     private var outNetBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.packetBufferSize)
+
+    // inbound 시에 inNetBuffer -> unwrap() -> inAppBuffer 순서로 데이터가 흘러간다.
     private var inAppBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
     private var inNetBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.packetBufferSize)
 
-    private var inBuffer: Buffer = Buffer() // 다음 chain으로 넘겨줄 data를 저장한 buffer이다. 사용되지 않으면 누적될 것이다.
+    private var inBuffer: Buffer = Buffer() // inbound 시에 다음 codec으로 넘겨줄 data를 저장한 buffer이다. 사용되지 않으면 누적된다.
 
     init {
         sslEngine.useClientMode = clientMode
@@ -135,7 +139,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     SSLEngineResult.Status.CLOSED -> {
                         doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
                                          // 바로 shutdown해도 문제가 없다. (peer는 받을 의사가 없는 상태임.)
-                        return Buffer() // TODO Buffer.EMPTY로 변경.
+                        return Buffer.EMPTY
                     }
                     else -> {
                         throw SSLException("doWrap() can return OK or CLOSED")
@@ -164,7 +168,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     }
                     doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
                                      // 바로 shutdown해도 문제가 없다. (peer는 받을 의사가 없는 상태임.)
-                    return Buffer() // TODO Buffer.EMPTY로 변경.
+                    return Buffer.EMPTY
                 }
                 else -> {
                     throw SSLException("doWrap() can return OK or CLOSED")
