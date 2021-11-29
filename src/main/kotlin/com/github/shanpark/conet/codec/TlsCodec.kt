@@ -29,7 +29,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     }
 
     private val sslEngine: SSLEngine = sslContext.createSSLEngine()
-    private var isHandshaking: Boolean = false // handshaking의 시작이 감지되면 true로 설정되고 끝나면 false로 설정된다.
+    private var isHandshaking: Boolean = false // handshaking 진행중 표시
+    private var isShutingDown: Boolean = false // shutdown 진행중 표시
 
     // outbound 시에 outAppBuffer -> wrap() -> outNetBuffer 순서로 데이터가 흘러간다.
     private var outAppBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
@@ -229,6 +230,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                         }
                         SSLEngineResult.Status.CLOSED -> {
                             doShutdown(conn)
+                            break
                         }
                         else -> {
                             throw SSLException("doWrap() can return OK or CLOSED")
@@ -238,6 +240,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                 SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
                     println("decode handshakeStatus: NEED_UNWRAP")
                     sslEngineResult = doUnwrapForHandshake(conn)
+
                     when (sslEngineResult.status) {
                         SSLEngineResult.Status.OK -> {
                             handshakeStatus = sslEngineResult.handshakeStatus
@@ -245,7 +248,12 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                             // 따라서 inAppBuffer는 handshaking이 끝날 때 까지 비어있는 게 맞다.
                         }
                         SSLEngineResult.Status.CLOSED -> {
+                            // TODO macOS에서는 shutdown할 때 마지막 close_notify의 응답을 unwrap하면 OK, NOT_HANDSHAKING이 나오는 것 같은데
+                            //  linux에서는 마지막 close_notify의 응답으로 CLOSED, NOT_HANDSHAKING이 나오는 것 같다.
+                            //  그래서 이미 doShutdown()이 시작되서 doHandshake()에 들어온건데 CLSOED가 또 나오니
+                            //  다시 doShutdown()이 호출되는 현상이 있음. 그래서 isShutingDown으로 doShutdown()이 다시 동작하지 않게 막음.
                             doShutdown(conn)
+                            break
                         }
                         else -> {
                             throw SSLException("doUnwrap() can return OK or CLOSED")
@@ -432,25 +440,31 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     }
 
     private suspend fun doShutdown(conn: CoTcp) {
-        println("decode doShutdown()")
-        sslEngine.closeOutbound() // 여기서는 closeOutbound()만 해준다. closeInbound()는 EoS가 감지된 쪽에서 해준다.
+        if (!isShutingDown) {
+            isShutingDown = true
 
-        while (!sslEngine.isOutboundDone) {
-            // Get close message
-            val sslEngineResult = sslEngine.wrap(EMPTY_BUFFER, outNetBuffer) // isOutboundDone이 될 때 까지 계속 wrap을 해서 상대에게 보내야 한다.
+            println("decode doShutdown()")
 
-            // 바로 위의 wrap()에서 생성된 message를 peer에게 보낸다.
-            // 내가 닫는 경우라는 shutdown 요청이고, 상대가 shutdown 요청을 해서 시작된 거라면 shutdown 요청에 대한 응답이 될 것이다.
-            rawWrite(conn) // outNetBuffer의 내용을 전송. shutdown 메시지는 직접 socket으로 전송해준다.
+            sslEngine.closeOutbound() // 여기서는 closeOutbound()만 해준다. closeInbound()는 EoS가 감지된 쪽에서 해준다.
 
-            // 상대가 shutdown을 했으면 status: CLOSED, handshakeStatus: NOT_HANDSHAKING
-            // 내가 shutdown을 요청 했으면 status: CLOSED, handshakeStatus: NEED_UNWRAP. shutdown 응답을 unwrap해야 한다.
-            // shutdown도 로직은 handshaking과 마찬가지. 여기서 끝난다. 이후는 더 이상 read/write하면 안된다.
-            doHandshake(conn, sslEngineResult.handshakeStatus)
+            while (!sslEngine.isOutboundDone) {
+                // Get close message
+                val sslEngineResult = sslEngine.wrap(EMPTY_BUFFER, outNetBuffer) // isOutboundDone이 될 때 까지 계속 wrap을 해서 상대에게 보내야 한다.
+
+                // 바로 위의 wrap()에서 생성된 message를 peer에게 보낸다.
+                // 내가 닫는 경우라는 shutdown 요청이고, 상대가 shutdown 요청을 해서 시작된 거라면 shutdown 요청에 대한 응답이 될 것이다.
+                rawWrite(conn) // outNetBuffer의 내용을 전송. shutdown 메시지는 직접 socket으로 전송해준다.
+
+                // 상대가 shutdown을 했으면 status: CLOSED, handshakeStatus: NOT_HANDSHAKING
+                // 내가 shutdown을 요청 했으면 status: CLOSED, handshakeStatus: NEED_UNWRAP. shutdown 응답을 unwrap해야 한다.
+                // shutdown도 로직은 handshaking과 마찬가지. 여기서 끝난다. 이후는 더 이상 read/write하면 안된다.
+                doHandshake(conn, sslEngineResult.handshakeStatus)
+            }
+
+            // Close transport
+            conn.close() // 직접 닫지 않고 conn으로 요청한다.
+            isShutingDown = false
         }
-
-        // Close transport
-        conn.close() // 직접 닫지 않고 conn으로 요청한다.
     }
 
     /**

@@ -126,7 +126,7 @@ class CoNetTest {
         }
     }
 
-//    @Test
+    @Test
     @DisplayName("TLS Web Client Test")
     internal fun tls() {
         val sslContext = SSLContext.getInstance("TLS")
@@ -158,7 +158,7 @@ class CoNetTest {
 
         // 서버 시작.
         val server = CoServer { TlsEchoHandlers(serverSslContext) }
-            .start(InetSocketAddress(443))
+            .start(InetSocketAddress(10080))
         println("TLS Server started.")
 
         // 클라이언트용 SSLContext 생성
@@ -168,7 +168,7 @@ class CoNetTest {
         // 클라이언트 시작.
         val handlers = TlsTestHandlers(clientSslContext, 5)
         CoClient(handlers)
-            .connect(InetSocketAddress("localhost", 443))
+            .connect(InetSocketAddress("localhost", 10080))
             .await()
 
         assertThat(server.isRunning()).isTrue
