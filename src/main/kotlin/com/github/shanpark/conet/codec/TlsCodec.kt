@@ -7,20 +7,26 @@ import com.github.shanpark.conet.TcpCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import java.nio.ByteBuffer
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
 import javax.net.ssl.SSLException
 
-/* TODO
- *  - IO scope에서 실행해야 하는 로직들 검토해서 다시 재정비 해야함.
- *  - 특히 Buffer undereflow가 발생하면 loop를 여러 차례 돈다. 이건 모두 IO에서 해야 맞는 것 같다.
- */
 /**
+ * TlsCodec은 handshaking을 IO scope에서 처리하도록 한다. handshaking 중에는 non-blocking socket에 직접
+ * read하거나 write하는 작업이 들어가는데 이 때 loop를 돌며 데이터가 read 또는 write될 때 까지 대기를 하도록 구현된다.
+ * 이러한 작업들이 현재 coroutine을 잡고 있을 수는 없으므로 IO scope로 넘겨서 실행되도록 하고 현재 coroutine은 suspend되어
+ * 다른 channel의 이벤트를 계속해서 처리할 수 있도록 한다. handshaking 중이 아닌 곳에서 직접 socket write 작업을
+ * 수행하는 경우(rawWrite() 호출)에도 IO scope에 실행되도록 구현하였다.
+ * IO scope라고 하더라도 socket에서 1 바이트도 읽거나 쓸 수 없는 상황이 오면 yield()를 호출하여 다른 coroutine에게 일단
+ * 양보하는 방식으로 구현한다.
+ *
  * handshaking 중에는 inbound든 outbound든 app 데이터가 전혀 사용(consume)되지 않는다. handshaking이 끝나고 나서
  * outNetBuffer, inAppBuffer에 데이터가 생성되어 있다면 다음 코덱에서 처리할 수 있도록 넘겨주면 된다.
  */
+@Suppress("BlockingMethodInNonBlockingContext")
 class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
     companion object {
@@ -135,7 +141,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                                  // handshking중에는 outAppBuffer의 내용은 handshaking이 끝날 때까지 그대로 있다. 즉 wrap이 전혀 안된채로 있을 것이다.
                 when (sslEngineResult.status) {
                     SSLEngineResult.Status.OK -> {
-                        rawWrite(conn) // outNetBuffer의 내용을 전송. handshaking data는 여기서 socket에 직접 write한다.
+                        ioScope.launch { rawWrite(conn) }.join() // outNetBuffer의 내용을 전송. handshaking data는 여기서 socket에 직접 write한다.
                     }
                     SSLEngineResult.Status.CLOSED -> {
                         doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
@@ -218,68 +224,70 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         var sslEngineResult: SSLEngineResult
         var handshakeStatus = handshakeStatus0
 
-        while (true) {
-            when (handshakeStatus) {
-                SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
-                    println("decode handshakeStatus: NEED_WRAP")
-                    sslEngineResult = doWrap()
-                    when (sslEngineResult.status) {
-                        SSLEngineResult.Status.OK -> {
-                            handshakeStatus = sslEngineResult.handshakeStatus
-                            rawWrite(conn) // outNetBuffer의 내용을 전송. handshaking 데이터는 여기서 직접 전송해준다.
-                        }
-                        SSLEngineResult.Status.CLOSED -> {
-                            doShutdown(conn)
-                            break
-                        }
-                        else -> {
-                            throw SSLException("doWrap() can return OK or CLOSED")
+        ioScope.launch {
+            while (true) {
+                when (handshakeStatus) {
+                    SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
+                        println("decode handshakeStatus: NEED_WRAP")
+                        sslEngineResult = doWrap()
+                        when (sslEngineResult.status) {
+                            SSLEngineResult.Status.OK -> {
+                                handshakeStatus = sslEngineResult.handshakeStatus
+                                rawWrite(conn) // outNetBuffer의 내용을 전송. handshaking 데이터는 여기서 직접 전송해준다.
+                            }
+                            SSLEngineResult.Status.CLOSED -> {
+                                doShutdown(conn)
+                                break
+                            }
+                            else -> {
+                                throw SSLException("doWrap() can return OK or CLOSED")
+                            }
                         }
                     }
-                }
-                SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-                    println("decode handshakeStatus: NEED_UNWRAP")
-                    sslEngineResult = doUnwrapForHandshake(conn)
+                    SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+                        println("decode handshakeStatus: NEED_UNWRAP")
+                        sslEngineResult = doUnwrapForHandshake(conn)
 
-                    when (sslEngineResult.status) {
-                        SSLEngineResult.Status.OK -> {
-                            handshakeStatus = sslEngineResult.handshakeStatus
-                            // handshaking 중에는 app data가 생성되는 게 하나도 없다.
-                            // 따라서 inAppBuffer는 handshaking이 끝날 때 까지 비어있는 게 맞다.
-                        }
-                        SSLEngineResult.Status.CLOSED -> {
-                            // TODO macOS에서는 shutdown할 때 마지막 close_notify의 응답을 unwrap하면 OK, NOT_HANDSHAKING이 나오는 것 같은데
-                            //  linux에서는 마지막 close_notify의 응답으로 CLOSED, NOT_HANDSHAKING이 나오는 것 같다.
-                            //  그래서 이미 doShutdown()이 시작되서 doHandshake()에 들어온건데 CLSOED가 또 나오니
-                            //  다시 doShutdown()이 호출되는 현상이 있음. 그래서 isShutingDown으로 doShutdown()이 다시 동작하지 않게 막음.
-                            doShutdown(conn)
-                            break
-                        }
-                        else -> {
-                            throw SSLException("doUnwrap() can return OK or CLOSED")
+                        when (sslEngineResult.status) {
+                            SSLEngineResult.Status.OK -> {
+                                handshakeStatus = sslEngineResult.handshakeStatus
+                                // handshaking 중에는 app data가 생성되는 게 하나도 없다.
+                                // 따라서 inAppBuffer는 handshaking이 끝날 때 까지 비어있는 게 맞다.
+                            }
+                            SSLEngineResult.Status.CLOSED -> {
+                                // TODO macOS에서는 shutdown할 때 마지막 close_notify의 응답을 unwrap하면 OK, NOT_HANDSHAKING이 나오는 것 같은데
+                                //  linux에서는 마지막 close_notify의 응답으로 CLOSED, NOT_HANDSHAKING이 나오는 것 같다.
+                                //  그래서 이미 doShutdown()이 시작되서 doHandshake()에 들어온건데 CLSOED가 또 나오니
+                                //  다시 doShutdown()이 호출되는 현상이 있음. 그래서 isShutingDown으로 doShutdown()이 다시 동작하지 않게 막음.
+                                doShutdown(conn)
+                                break
+                            }
+                            else -> {
+                                throw SSLException("doUnwrap() can return OK or CLOSED")
+                            }
                         }
                     }
-                }
-                SSLEngineResult.HandshakeStatus.NEED_TASK -> {
-                    println("decode handshakeStatus: NEED_TASK")
-                    doTask()
-                    handshakeStatus = sslEngine.handshakeStatus
-                }
-                SSLEngineResult.HandshakeStatus.FINISHED -> {
-                    println("decode handshakeStatus: FINISHED")
-                    isHandshaking = false
-                    break
-                }
-                SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING -> {
-                    println("decode handshakeStatus: NOT_HANDSHAKING")
-                    isHandshaking = false
-                    break
-                }
-                else -> {
-                    throw SSLException("Unknown SSLEngineResult handshake status.")
+                    SSLEngineResult.HandshakeStatus.NEED_TASK -> {
+                        println("decode handshakeStatus: NEED_TASK")
+                        doTask()
+                        handshakeStatus = sslEngine.handshakeStatus
+                    }
+                    SSLEngineResult.HandshakeStatus.FINISHED -> {
+                        println("decode handshakeStatus: FINISHED")
+                        isHandshaking = false
+                        break
+                    }
+                    SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING -> {
+                        println("decode handshakeStatus: NOT_HANDSHAKING")
+                        isHandshaking = false
+                        break
+                    }
+                    else -> {
+                        throw SSLException("Unknown SSLEngineResult handshake status.")
+                    }
                 }
             }
-        }
+        }.join() // handshaking은 통째로 IO scope에서 실행한다.
     }
 
     private fun doWrap(): SSLEngineResult {
@@ -365,7 +373,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     /**
      * handshaking 하는 동안 호출된다. 데이터가 모자라면 직접 소켓으로부터 읽어들인다.
      */
-    private fun doUnwrapForHandshake(conn: CoTcp): SSLEngineResult {
+    private suspend fun doUnwrapForHandshake(conn: CoTcp): SSLEngineResult {
         var sslEngineResult: SSLEngineResult
 
         // inNetBuffer에는 이미 data가 있을 수도 있다. 그런 경우 1 바이트도 못 읽고 지나가는 경우가 있는 데 정상이다.
@@ -407,6 +415,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                             return SSLEngineResult(SSLEngineResult.Status.CLOSED, sslEngine.handshakeStatus, 0, 0)
                         } else if (read > 0) {
                             break
+                        } else {
+                            yield() // 1 바이트도 못읽었다면 다른 coroutine에게 잠시 양보한다.
                         }
                     }
                 }
@@ -425,20 +435,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         return sslEngineResult
     }
 
-    private suspend fun doTask() {
-        println("doTask before")
-        val job = ioScope.launch {
-            var task = sslEngine.delegatedTask
-            while (task != null) {
-                task.run()
-                task = sslEngine.delegatedTask
-            }
-            println("doTask end")
-        }
-        job.join()
-        println("doTask after")
-    }
-
     private suspend fun doShutdown(conn: CoTcp) {
         if (!isShutingDown) {
             isShutingDown = true
@@ -453,7 +449,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
                 // 바로 위의 wrap()에서 생성된 message를 peer에게 보낸다.
                 // 내가 닫는 경우라는 shutdown 요청이고, 상대가 shutdown 요청을 해서 시작된 거라면 shutdown 요청에 대한 응답이 될 것이다.
-                rawWrite(conn) // outNetBuffer의 내용을 전송. shutdown 메시지는 직접 socket으로 전송해준다.
+                ioScope.launch { rawWrite(conn) }.join() // outNetBuffer의 내용을 전송. shutdown 메시지는 직접 socket으로 전송해준다.
 
                 // 상대가 shutdown을 했으면 status: CLOSED, handshakeStatus: NOT_HANDSHAKING
                 // 내가 shutdown을 요청 했으면 status: CLOSED, handshakeStatus: NEED_UNWRAP. shutdown 응답을 unwrap해야 한다.
@@ -467,18 +463,26 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         }
     }
 
+    private fun doTask() {
+        var task = sslEngine.delegatedTask
+        while (task != null) {
+            task.run()
+            task = sslEngine.delegatedTask
+        }
+    }
+
     /**
      * channel을 통해서 직접 peer로 byteBuffer의 내용을 모두 전송한다.
      * 내부에서 알아서 flip()과 clear()를 호출하므로 함수 호출자는 따로 호출해서는 안된다.
      * buffer에 담긴 내용을 모두 전송하거나 exception이 발생할 떄 까지 종료되지 않는다.
      */
     private suspend fun rawWrite(conn: CoTcp) {
-        val job = ioScope.launch {
-            outNetBuffer.flip()
-            while (outNetBuffer.hasRemaining())
-                conn.channel.write(outNetBuffer)
-            outNetBuffer.clear() // 모두 전송했으므로 clear해준다.
+        outNetBuffer.flip()
+        while (outNetBuffer.hasRemaining()) {
+            conn.channel.write(outNetBuffer)
+            if (outNetBuffer.hasRemaining())
+                yield() // 모두 write가 안됐다면 커널의 버퍼가 가득 찼을 것이다. 이 경우 잠시 다른 coroutine이 실행되도록 양보한다.
         }
-        job.join()
+        outNetBuffer.clear() // 모두 전송했으므로 clear해준다.
    }
 }
