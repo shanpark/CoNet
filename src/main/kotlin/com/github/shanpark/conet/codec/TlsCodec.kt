@@ -133,9 +133,9 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                         rawWrite(conn) // outNetBuffer의 내용을 전송. handshaking data는 여기서 socket에 직접 write한다.
                     }
                     SSLEngineResult.Status.CLOSED -> {
-                        doShutdown(conn)
-//                        conn.close() // close 요청을 하고 나가면 close가 되면서 적절히 shutdown이 될 것이다.
-                        break
+                        doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
+                                         // 바로 shutdown해도 문제가 없다. (peer는 받을 의사가 없는 상태임.)
+                        return Buffer() // TODO Buffer.EMPTY로 변경.
                     }
                     else -> {
                         throw SSLException("doWrap() can return OK or CLOSED")
@@ -162,9 +162,9 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                         nextBuffer.write(outNetBuffer)
                         outNetBuffer.clear()
                     }
-                    doShutdown(conn)
-//                    conn.close() // close 요청을 하고 나가면 close가 되면서 shutdown이 될 것이다.
-                    break
+                    doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
+                                     // 바로 shutdown해도 문제가 없다. (peer는 받을 의사가 없는 상태임.)
+                    return Buffer() // TODO Buffer.EMPTY로 변경.
                 }
                 else -> {
                     throw SSLException("doWrap() can return OK or CLOSED")
