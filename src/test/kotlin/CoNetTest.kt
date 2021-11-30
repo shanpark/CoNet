@@ -103,9 +103,9 @@ class CoNetTest {
     @Test
     @DisplayName("TLS 1000 client Test")
     internal fun tlsClient1000() {
-        val CLIENT_MAX = 2000 // 4000개는 메모리 부족. 2000, 16ms, 4 정도가 적당
+        val CLIENT_MAX = 3000 // 4000개는 메모리 부족. 2000, 16ms, 4 정도가 적당
         val CONNECT_DELAY = 16L // 16ms delay
-        val PACKET_COUNT = (CLIENT_MAX / 4)
+        val PACKET_COUNT = (CLIENT_MAX / 3.8).toInt()
 
         val keyfile = "./src/test/resources/cert.keystore"
         val keystorePassword = "certpassword"
