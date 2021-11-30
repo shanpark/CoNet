@@ -4,10 +4,7 @@ import com.github.shanpark.buffers.Buffer
 import com.github.shanpark.buffers.ReadBuffer
 import com.github.shanpark.conet.CoTcp
 import com.github.shanpark.conet.TcpCodec
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
+import kotlinx.coroutines.*
 import java.nio.ByteBuffer
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
@@ -31,7 +28,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
     companion object {
         private val EMPTY_BUFFER = ByteBuffer.wrap(ByteArray(0))
-        private val ioScope: CoroutineScope = CoroutineScope(Dispatchers.IO)
     }
 
     private val sslEngine: SSLEngine = sslContext.createSSLEngine()
@@ -57,10 +53,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         if (!buffer.isReadable) // 추가 데이터가 없다면
             return null // codec chain을 진행할 필요가 없다.
 
-        println("decode() called [${buffer.readableBytes}]")
-
         while (true) {
-            buffer.read(inNetBuffer) // net buffer로 옮김
+            buffer.read(inNetBuffer) // net buffer로 옮김. inNetBuffer의 크기만큼만 읽어서 unwrap을 시도한다. 나머지는 다음 loop에서 처리.
 
             var sslEngineResult = doUnwrap() // unwrap 처리
             if (isHandshaking) { // 실제 handshaking할 때 뿐만 아니라 shutdown할 때도 handshaking 상태로 나온다.
@@ -134,14 +128,17 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
         val nextBuffer = Buffer()
         while (true) {
-            buffer.read(outAppBuffer)
+            buffer.read(outAppBuffer) // outAppBuffer 크기만큼만 읽어온다. 나머지는 그 다음 loop에서 시도할 것이다.
 
             var sslEngineResult = doWrap()
             if (isHandshaking) { // handshaking이 시작되었다. 일단 handshaking이 시작되면 if문 안에서 handshking이 끝날 때까지 못나감.
                                  // handshking중에는 outAppBuffer의 내용은 handshaking이 끝날 때까지 그대로 있다. 즉 wrap이 전혀 안된채로 있을 것이다.
                 when (sslEngineResult.status) {
                     SSLEngineResult.Status.OK -> {
-                        ioScope.launch { rawWrite(conn) }.join() // outNetBuffer의 내용을 전송. handshaking data는 여기서 socket에 직접 write한다.
+                        coroutineScope {
+                            // outNetBuffer의 내용을 전송. handshaking data는 여기서 socket에 직접 write한다.
+                            launch(Dispatchers.IO) { rawWrite(conn) }
+                        }
                     }
                     SSLEngineResult.Status.CLOSED -> {
                         doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
@@ -220,11 +217,11 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         }
     }
 
-    private suspend fun doHandshake(conn: CoTcp, handshakeStatus0: SSLEngineResult.HandshakeStatus) {
-        var sslEngineResult: SSLEngineResult
-        var handshakeStatus = handshakeStatus0
+    private suspend fun doHandshake(conn: CoTcp, handshakeStatus0: SSLEngineResult.HandshakeStatus) = coroutineScope {
+        launch(Dispatchers.IO) { // handshaking은 통째로 IO scope에서 실행한다. 다른 socket 작업을 중단시키지 않도록.
+            var sslEngineResult: SSLEngineResult
+            var handshakeStatus = handshakeStatus0
 
-        ioScope.launch {
             while (true) {
                 when (handshakeStatus) {
                     SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
@@ -254,12 +251,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                                 // handshaking 중에는 app data가 생성되는 게 하나도 없다.
                                 // 따라서 inAppBuffer는 handshaking이 끝날 때 까지 비어있는 게 맞다.
                             }
-                            SSLEngineResult.Status.CLOSED -> {
-                                // TODO macOS에서는 shutdown할 때 마지막 close_notify의 응답을 unwrap하면 OK, NOT_HANDSHAKING이 나오는 것 같은데
-                                //  linux에서는 마지막 close_notify의 응답으로 CLOSED, NOT_HANDSHAKING이 나오는 것 같다.
-                                //  그래서 이미 doShutdown()이 시작되서 doHandshake()에 들어온건데 CLSOED가 또 나오니
-                                //  다시 doShutdown()이 호출되는 현상이 있음. 그래서 isShutingDown으로 doShutdown()이 다시 동작하지 않게 막음.
-                                doShutdown(conn)
+                            SSLEngineResult.Status.CLOSED -> { // shutdown중에 doHandshake()가 호출된 경우에도 CLOSED가 나온다.
+                                doShutdown(conn) // 하지만 이미 shutdown중이므로 다시 호출했을 때 문제 없도록 doShutdown()에서 처리한다.
                                 break
                             }
                             else -> {
@@ -287,8 +280,9 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     }
                 }
             }
-        }.join() // handshaking은 통째로 IO scope에서 실행한다.
+        }
     }
+
 
     private fun doWrap(): SSLEngineResult {
         var sslEngineResult: SSLEngineResult
@@ -296,7 +290,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
             outAppBuffer.flip()
             sslEngineResult = sslEngine.wrap(outAppBuffer, outNetBuffer)
             outAppBuffer.compact()
-            println("sslEngine.wrap() consumed = ${sslEngineResult.bytesConsumed()}")
+
             isHandshaking = (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.FINISHED) &&
                 (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
 
@@ -446,13 +440,20 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
             while (!sslEngine.isOutboundDone) {
                 // Get close message
                 val sslEngineResult = sslEngine.wrap(EMPTY_BUFFER, outNetBuffer) // isOutboundDone이 될 때 까지 계속 wrap을 해서 상대에게 보내야 한다.
+                // macOS에서는 여기서 close_notify건 그 응답이건 CLOSED, NOT_HANDSHAKING이 나온다.
+                // linux에서는 close_notify인 경우 CLOSED, NEED_UNWRAP이 나온다. notify의 응답을 받아야 하기 때문이다.
+                // 규격상으로 둘 다 허용가능한 건지 모르겠지만 notify를 보냈으면 응답을 받아야 하므로 linux가 맞는 것 같다.
 
                 // 바로 위의 wrap()에서 생성된 message를 peer에게 보낸다.
                 // 내가 닫는 경우라는 shutdown 요청이고, 상대가 shutdown 요청을 해서 시작된 거라면 shutdown 요청에 대한 응답이 될 것이다.
-                ioScope.launch { rawWrite(conn) }.join() // outNetBuffer의 내용을 전송. shutdown 메시지는 직접 socket으로 전송해준다.
+                coroutineScope {
+                    // outNetBuffer의 내용을 전송. shutdown 메시지는 직접 socket으로 전송해준다.
+                    launch(Dispatchers.IO) { rawWrite(conn) }
+                }
 
                 // 상대가 shutdown을 했으면 status: CLOSED, handshakeStatus: NOT_HANDSHAKING
                 // 내가 shutdown을 요청 했으면 status: CLOSED, handshakeStatus: NEED_UNWRAP. shutdown 응답을 unwrap해야 한다.
+                // 하지만 macOS에서는 둘 다 NOT_HANDSHAKING이 나오는 현상이 있다.
                 // shutdown도 로직은 handshaking과 마찬가지. 여기서 끝난다. 이후는 더 이상 read/write하면 안된다.
                 doHandshake(conn, sslEngineResult.handshakeStatus)
             }
@@ -463,6 +464,11 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         }
     }
 
+    /**
+     * SSLEngine에서 위탁한 task들을 실행한다.
+     * 어떤 작업인지는 알 수 없으므로 IO scope에서 실행되도록 호출하는 게 안전하다.
+     * 현재는 doHandshake()에서만 사용되고 있으며 doHandshake()는 전체가 IO scope에서 수행되므로 문제 없다.
+     */
     private fun doTask() {
         var task = sslEngine.delegatedTask
         while (task != null) {
@@ -475,14 +481,16 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
      * channel을 통해서 직접 peer로 byteBuffer의 내용을 모두 전송한다.
      * 내부에서 알아서 flip()과 clear()를 호출하므로 함수 호출자는 따로 호출해서는 안된다.
      * buffer에 담긴 내용을 모두 전송하거나 exception이 발생할 떄 까지 종료되지 않는다.
+     *
+     * 내부적으로 loop를 돌며 모두 전송될 때 까지 재시도하는 로직이 있다. 따라서 IO scope에서 실행되도록 호출하는 게 안전하다.
      */
     private suspend fun rawWrite(conn: CoTcp) {
         outNetBuffer.flip()
         while (outNetBuffer.hasRemaining()) {
             conn.channel.write(outNetBuffer)
             if (outNetBuffer.hasRemaining())
-                yield() // 모두 write가 안됐다면 커널의 버퍼가 가득 찼을 것이다. 이 경우 잠시 다른 coroutine이 실행되도록 양보한다.
+                yield() // 모두 write가 안됐다면 커널의 버퍼가 가득 찼을 것이다. 이 경우 즉시 다른 coroutine이 실행되도록 양보한다.
         }
         outNetBuffer.clear() // 모두 전송했으므로 clear해준다.
-   }
+    }
 }
