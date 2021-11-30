@@ -20,6 +20,10 @@ import javax.net.ssl.SSLException
  * IO scope라고 하더라도 socket에서 1 바이트도 읽거나 쓸 수 없는 상황이 오면 yield()를 호출하여 다른 coroutine에게 일단
  * 양보하는 방식으로 구현한다.
  *
+ * 한 channel당 하나의 coroutine이 수행되는데 굳이 IO scope로 보낼 필요가 있나?? yield만 잘해주면 되는 거 아닌가?
+ * default scope는 channel 들의 coroutine을 수행하도록 하고 io scope는 시간이 걸리는 작업을 수행하도록 하면 default scope가
+ * 좀 원활해질까?
+ *
  * handshaking 중에는 inbound든 outbound든 app 데이터가 전혀 사용(consume)되지 않는다. handshaking이 끝나고 나서
  * outNetBuffer, inAppBuffer에 데이터가 생성되어 있다면 다음 코덱에서 처리할 수 있도록 넘겨주면 된다.
  */
@@ -225,7 +229,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
             while (true) {
                 when (handshakeStatus) {
                     SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
-                        println("decode handshakeStatus: NEED_WRAP")
                         sslEngineResult = doWrap()
                         when (sslEngineResult.status) {
                             SSLEngineResult.Status.OK -> {
@@ -242,7 +245,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                         }
                     }
                     SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-                        println("decode handshakeStatus: NEED_UNWRAP")
                         sslEngineResult = doUnwrapForHandshake(conn)
 
                         when (sslEngineResult.status) {
@@ -261,17 +263,14 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                         }
                     }
                     SSLEngineResult.HandshakeStatus.NEED_TASK -> {
-                        println("decode handshakeStatus: NEED_TASK")
                         doTask()
                         handshakeStatus = sslEngine.handshakeStatus
                     }
                     SSLEngineResult.HandshakeStatus.FINISHED -> {
-                        println("decode handshakeStatus: FINISHED")
                         isHandshaking = false
                         break
                     }
                     SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING -> {
-                        println("decode handshakeStatus: NOT_HANDSHAKING")
                         isHandshaking = false
                         break
                     }
@@ -331,7 +330,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
             when (sslEngineResult.status) {
                 SSLEngineResult.Status.BUFFER_OVERFLOW -> {
-                    println("doUnwrap() -> BUFFER_OVERFLOW")
                     val appSize: Int = sslEngine.session.applicationBufferSize
                     val newBuf = ByteBuffer.allocate(appSize + inAppBuffer.position())
                     inAppBuffer.flip()
@@ -339,7 +337,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     inAppBuffer = newBuf
                 }
                 SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
-                    println("doUnwrap() -> BUFFER_UNDERFLOW")
                     val netSize: Int = sslEngine.session.packetBufferSize
                     if (netSize > inAppBuffer.capacity()) { // reference 문서에 이렇게 되어있는데 좀 이상하네.. dst 크기보다 큰데 src를 늘리네..
                         val newBuf = ByteBuffer.allocate(netSize)
@@ -385,7 +382,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     (sslEngineResult.handshakeStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
             when (sslEngineResult.status) {
                 SSLEngineResult.Status.BUFFER_OVERFLOW -> {
-                    println("doUnwrap() -> BUFFER_OVERFLOW")
                     val appSize: Int = sslEngine.session.applicationBufferSize
                     val newBuf = ByteBuffer.allocate(appSize + inAppBuffer.position())
                     inAppBuffer.flip()
@@ -393,7 +389,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                     inAppBuffer = newBuf
                 }
                 SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
-                    println("doUnwrap() -> BUFFER_UNDERFLOW")
                     val netSize: Int = sslEngine.session.packetBufferSize
                     if (netSize > inAppBuffer.capacity()) { // reference 문서에 이렇게 되어있는데 좀 이상하네.. dst 크기보다 큰데 src를 늘리네..
                         val newBuf = ByteBuffer.allocate(netSize)
@@ -432,8 +427,6 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     private suspend fun doShutdown(conn: CoTcp) {
         if (!isShutingDown) {
             isShutingDown = true
-
-            println("decode doShutdown()")
 
             sslEngine.closeOutbound() // 여기서는 closeOutbound()만 해준다. closeInbound()는 EoS가 감지된 쪽에서 해준다.
 

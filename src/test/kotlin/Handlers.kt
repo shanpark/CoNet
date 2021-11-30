@@ -16,12 +16,14 @@ import javax.net.ssl.SSLContext
  * 이렇게 구현하면 각 connection의 상태를 가질 수 있으며 모든 핸들러는 하나의 coroutine에서
  * 실행되므로 동기화 문제도 신경쓸 필요가 없음.
  */
-class EchoHandlers: TcpHandlers() {
+class EchoHandlers(tls: Boolean = false, sslContext: SSLContext? = null): TcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0) // EchoHandlers의 connection 갯수
     }
 
     init {
+        if (tls)
+            codecChain.add(TlsCodec(sslContext!!, false))
         codecChain.add(StringCodec())
         codecChain.add(ParenthesesCodec())
     }
@@ -44,7 +46,7 @@ class EchoHandlers: TcpHandlers() {
     }
 }
 
-class TestHandlers(private val packetCount: Int): TcpHandlers() {
+class TestHandlers(private val packetCount: Int, tls: Boolean = false, sslContext: SSLContext? = null): TcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0)
     }
@@ -55,6 +57,8 @@ class TestHandlers(private val packetCount: Int): TcpHandlers() {
     var sb = StringBuilder()
 
     init {
+        if (tls)
+            codecChain.add(TlsCodec(sslContext!!, true))
         codecChain.add(StringCodec())
         codecChain.add(ParenthesesCodec())
     }
