@@ -42,7 +42,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     private var inAppBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
     private var inNetBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.packetBufferSize)
 
-    private var inBuffer: Buffer = Buffer() // inbound 시에 다음 codec으로 넘겨줄 data를 저장한 buffer이다. 사용되지 않으면 누적된다.
+    private var inBuffer: Buffer = Buffer(sslEngine.session.applicationBufferSize) // inbound 시에 다음 codec으로 넘겨줄 data를 저장한 buffer이다. 사용되지 않으면 누적된다.
+    private var outBuffer: Buffer = Buffer(sslEngine.session.applicationBufferSize) // outbound 시에 다음 codec으로 넘겨줄 data를 저장한 buffer이다.
 
     init {
         sslEngine.useClientMode = clientMode
@@ -126,7 +127,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     override suspend fun encode(conn: CoTcp, outObj: Any): Any {
         val buffer = outObj as ReadBuffer
 
-        val nextBuffer = Buffer()
+        outBuffer.clear()
         while (true) {
             buffer.read(outAppBuffer) // outAppBuffer 크기만큼만 읽어온다. 나머지는 그 다음 loop에서 시도할 것이다.
 
@@ -158,13 +159,13 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                 SSLEngineResult.Status.OK -> {
                     // outNetBuffer 반환.
                     outNetBuffer.flip()
-                    nextBuffer.write(outNetBuffer)
+                    outBuffer.write(outNetBuffer)
                     outNetBuffer.clear()
                 }
                 SSLEngineResult.Status.CLOSED -> {
                     if (outNetBuffer.position() > 0) { // 여기서 outNetBuffer에 wrap이 된 데이터가 있다면 보낼 수 있도록 한다.
                         outNetBuffer.flip()
-                        nextBuffer.write(outNetBuffer)
+                        outBuffer.write(outNetBuffer)
                         outNetBuffer.clear()
                     }
                     doShutdown(conn) // encode()이면 내가 write 작업중인데 CLOSED가 발생한 것이므로 아직 보내지 못한게 있더라도
@@ -181,7 +182,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
                 break
         }
 
-        return nextBuffer
+        return outBuffer
     }
 
     /**
