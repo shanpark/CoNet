@@ -12,20 +12,16 @@ import javax.net.ssl.SSLEngineResult
 import javax.net.ssl.SSLException
 
 /**
- * TlsCodec은 handshaking을 IO scope에서 처리하도록 한다. handshaking 중에는 non-blocking socket에 직접
- * read하거나 write하는 작업이 들어가는데 이 때 loop를 돌며 데이터가 read 또는 write될 때 까지 대기를 하도록 구현된다.
- * 이러한 작업들이 현재 coroutine을 잡고 있을 수는 없으므로 IO scope로 넘겨서 실행되도록 하고 현재 coroutine은 suspend되어
- * 다른 channel의 이벤트를 계속해서 처리할 수 있도록 한다. handshaking 중이 아닌 곳에서 직접 socket write 작업을
- * 수행하는 경우(rawWrite() 호출)에도 IO scope에 실행되도록 구현하였다.
- * IO scope라고 하더라도 socket에서 1 바이트도 읽거나 쓸 수 없는 상황이 오면 yield()를 호출하여 다른 coroutine에게 일단
- * 양보하는 방식으로 구현한다.
+ * Java가 제공하는 SSLEngine 객체를 이용하여 TLS 통신을 구현하는 codec이다.
  *
- * 한 channel당 하나의 coroutine이 수행되는데 굳이 IO scope로 보낼 필요가 있나?? yield만 잘해주면 되는 거 아닌가?
- * default scope는 channel 들의 coroutine을 수행하도록 하고 io scope는 시간이 걸리는 작업을 수행하도록 하면 default scope가
- * 좀 원활해질까?
+ * TLS codec은 특별한 이유가 없는 한 항상 codec chain의 맨 앞단에 위치해야한다. 내부적으로 channel로부터
+ * 직접 데이터를 읽거나 쓰는 작업이 있으므로 맨 앞이 아니면 문제가 생길 여지가 있다.
  *
- * handshaking 중에는 inbound든 outbound든 app 데이터가 전혀 사용(consume)되지 않는다. handshaking이 끝나고 나서
- * outNetBuffer, inAppBuffer에 데이터가 생성되어 있다면 다음 코덱에서 처리할 수 있도록 넘겨주면 된다.
+ * non-blocking socket을 이용하기 때문에 내부에 loop를 돌면서 데이터를 기다리거나 버퍼의 공간이 생길 때까지
+ * 기다리는 구현이 있다. 이 때도 coroutine을 잡고 있기 보다는 yield()를 호출하여 다른 coroutine에게 양보하도록
+ * 구현되어야 한다.
+ *
+ * 참고로 handshaking 중에는 inbound든 outbound든 app 데이터가 전혀 사용(consume)되거나 생성되지 않는다.
  */
 @Suppress("BlockingMethodInNonBlockingContext")
 class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
@@ -456,20 +452,16 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
             sslEngine.closeOutbound() // 여기서는 closeOutbound()만 해준다. closeInbound()는 EoS가 감지된 쪽에서 해준다.
 
             while (!sslEngine.isOutboundDone) {
-                // Get close message
-                val sslEngineResult = sslEngine.wrap(EMPTY_BUFFER, outNetBuffer) // isOutboundDone이 될 때 까지 계속 wrap을 해서 상대에게 보내야 한다.
-                // macOS에서는 여기서 close_notify건 그 응답이건 CLOSED, NOT_HANDSHAKING이 나온다.
+                val sslEngineResult = sslEngine.wrap(EMPTY_BUFFER, outNetBuffer) // Get close message
+                // macOS에서는 여기서 나오는 게 close_notify건 그 응답이건 CLOSED, NOT_HANDSHAKING이 나온다.
                 // linux에서는 close_notify인 경우 CLOSED, NEED_UNWRAP이 나온다. notify의 응답을 받아야 하기 때문이다.
-                // 규격상으로 둘 다 허용가능한 건지 모르겠지만 notify를 보냈으면 응답을 받아야 하므로 linux가 맞는 것 같다.
+                // 규격상으로 둘 다 허용가능한 건지 모르겠지만 notify를 보냈으면 응답을 받아야 하므로 linux가 맞는 것으로 보임.
 
                 // 바로 위의 wrap()에서 생성된 message를 peer에게 보낸다.
-                // 내가 닫는 경우라는 shutdown 요청이고, 상대가 shutdown 요청을 해서 시작된 거라면 shutdown 요청에 대한 응답이 될 것이다.
+                // 내가 요청하는 경우라면 close_notify 이고, 상대가 close_notify를 보내서 시작된 거라면 요청에 대한 응답이 될 것이다.
                 rawWrite(conn)
 
-                // 상대가 shutdown을 했으면 status: CLOSED, handshakeStatus: NOT_HANDSHAKING
-                // 내가 shutdown을 요청 했으면 status: CLOSED, handshakeStatus: NEED_UNWRAP. shutdown 응답을 unwrap해야 한다.
-                // 하지만 macOS에서는 둘 다 NOT_HANDSHAKING이 나오는 현상이 있다.
-                // shutdown도 로직은 handshaking과 마찬가지. 여기서 끝난다. 이후는 더 이상 read/write하면 안된다.
+                // shutdown도 handshaking status와 마찬가지 로직으로 처리. 여기서 끝난다. 이후는 더 이상 read/write하면 안된다.
                 doHandshake(conn, sslEngineResult.handshakeStatus)
             }
 

@@ -15,10 +15,9 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
-
 class CoNetTest {
 
-//    @Test
+    @Test
     @DisplayName("Yahoo client connect/stop Test")
     internal fun connectStop() {
         val client = CoClient(CoHandlers())
@@ -32,7 +31,7 @@ class CoNetTest {
         assertThat(client.isRunning()).isFalse
     }
 
-//    @Test
+    @Test
     @DisplayName("Basic server/client Test")
     internal fun basic() {
         val server = CoServer { EchoHandlers() }
@@ -49,10 +48,10 @@ class CoNetTest {
         assertThat(handlers.sb.toString()).isEqualTo("(Connected)(Hi)(Hi)(Hi)(Hi)(Hi)(User)(Closed)")
     }
 
-//    @Test
+    @Test
     @DisplayName("1000 client Test")
     internal fun client1000() {
-        val CLIENT_MAX = 1000
+        val CLIENT_MAX = 100
         val PACKET_COUNT = (CLIENT_MAX / 5)
 
         val server = CoServer { EchoHandlers() }
@@ -103,7 +102,7 @@ class CoNetTest {
     @Test
     @DisplayName("TLS 1000 client Test")
     internal fun tlsClient1000() {
-        val CLIENT_MAX = 3000 // 4000개는 메모리 부족. 2000, 16ms, 4 정도가 적당
+        val CLIENT_MAX = 100 // 4000개는 메모리 부족. 3000, 16ms, 4 정도가 적당
         val CONNECT_DELAY = 16L // 16ms delay
         val PACKET_COUNT = (CLIENT_MAX / 3.8).toInt()
 
@@ -176,7 +175,7 @@ class CoNetTest {
         }
     }
 
-    //    @Test
+    @Test
     @DisplayName("UDP Test")
     internal fun udp() {
         val udpServer = CoUdp(UdpServerHandlers(10))
@@ -202,7 +201,7 @@ class CoNetTest {
         }
     }
 
-//    @Test
+    @Test
     @DisplayName("TLS Web Client Test")
     internal fun tls() {
         val sslContext = SSLContext.getInstance("TLS")
@@ -212,7 +211,7 @@ class CoNetTest {
         client.await()
     }
 
-//    @Test
+    @Test
     @DisplayName("TLS Server Test")
     internal fun tlsServer() {
         val keyfile = "./src/test/resources/cert.keystore"
