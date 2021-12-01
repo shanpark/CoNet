@@ -8,7 +8,7 @@ publishing {
         mavenJava(MavenPublication) {
             groupId = 'com.github.shanpark'
             artifactId = 'conet'
-            version = '0.0.4'
+            version = '0.0.5-SNAPSHOT'
 
             from components.java
         }

@@ -6,6 +6,7 @@ import com.github.shanpark.services.coroutine.CoroutineService
 import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
 import java.net.SocketAddress
+import java.net.SocketOption
 import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
@@ -36,6 +37,8 @@ class CoServer(private val handlersFactory: () -> CoHandlers<CoTcp>): CoSelectab
      * 이미 시작된 상태에서는 아무것도 하지 않는다.
      *
      * @param address binding할 주소 객체.
+     *
+     * @return 이 객체 반환
      */
     fun start(address: SocketAddress): CoServer {
         if (!channel.isRegistered) {
@@ -49,11 +52,26 @@ class CoServer(private val handlersFactory: () -> CoHandlers<CoTcp>): CoSelectab
      * 실행 중단을 요청한다.
      * 비동기로 수행되며 최종적으로 내부 서비스가 종료되어야 완전히 종료된 것으로 볼 수 있다.
      * await() 메소드를 통해서 최종 종료시까지 대기할 수 있다.
+     *
+     * @return 이 객체 반환
      */
     fun stop(): CoServer {
         runBlocking {
             task.sendEvent(Event.STOP)
         }
+        return this
+    }
+
+    /**
+     * 전달된 옵션을 내부적으로 사용하는 ServerSocketChannel 객체에 전달 적용한다.
+     *
+     * @param name The socket option
+     * @param value The value of the socket option. A value of null may be a valid value for some socket options.
+     *
+     * @return 이 객체 반환
+     */
+    fun <T> setOption(name: SocketOption<T>, value: T): CoServer {
+        channel.setOption(name, value)
         return this
     }
 

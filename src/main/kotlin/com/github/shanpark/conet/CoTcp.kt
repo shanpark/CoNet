@@ -8,6 +8,7 @@ import com.github.shanpark.conet.util.off
 import com.github.shanpark.conet.util.on
 import com.github.shanpark.services.coroutine.CoroutineService
 import com.github.shanpark.services.coroutine.EventLoopCoTask
+import java.net.SocketOption
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
@@ -44,6 +45,19 @@ open class CoTcp(final override val channel: SocketChannel, private val handlers
      */
     internal suspend fun connected() {
         task.sendEvent(Event.CONNECTED)
+    }
+
+    /**
+     * 전달된 옵션을 내부적으로 사용하는 SocketChannel 객체에 전달 적용한다.
+     *
+     * @param name The socket option
+     * @param value The value of the socket option. A value of null may be a valid value for some socket options.
+     *
+     * @return 이 객체 반환
+     */
+    fun <T> setOption(name: SocketOption<T>, value: T): CoTcp {
+        channel.setOption(name, value)
+        return this
     }
 
     /**

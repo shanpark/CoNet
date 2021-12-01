@@ -10,6 +10,7 @@ import com.github.shanpark.services.coroutine.EventLoopCoTask
 import kotlinx.coroutines.runBlocking
 import java.net.DatagramPacket
 import java.net.SocketAddress
+import java.net.SocketOption
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 import java.nio.channels.SelectionKey
@@ -42,6 +43,8 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
      * binding된 주소로 수신되는 데이터를 받을 수 있다.
      *
      * @param address binding할 local 주소 객체.
+     *
+     * @return 이 객체 반환
      */
     fun bind(address: SocketAddress): CoUdp {
         channel.bind(address)
@@ -80,6 +83,19 @@ class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
     fun disconnect(): CoUdp {
         channel.disconnect()
 
+        return this
+    }
+
+    /**
+     * 전달된 옵션을 내부적으로 사용하는 DatagramChannel 객체에 전달 적용한다.
+     *
+     * @param name The socket option
+     * @param value The value of the socket option. A value of null may be a valid value for some socket options.
+     *
+     * @return 이 객체 반환
+     */
+    fun <T> setOption(name: SocketOption<T>, value: T): CoUdp {
+        channel.setOption(name, value)
         return this
     }
 
