@@ -18,7 +18,7 @@ import java.nio.channels.SocketChannel
  * 다시 이 객체는 재사용할 수 없다.
  *
  * @param handlersFactory CoHandlers 객체를 생성하여 반환하는 factory 메소드. 새로운 CoConnection 객체를 생성할 때 마다
- *                       호출하여 새로운 CoConnection 객체가 사용하도록 한다.
+ *                        호출하여 새로운 CoConnection 객체가 사용하도록 한다.
  */
 class CoServer(private val handlersFactory: () -> CoHandlers<CoTcp>): CoSelectable {
     override var channel: ServerSocketChannel = ServerSocketChannel.open()

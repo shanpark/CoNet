@@ -27,6 +27,7 @@ open class CoTcp(final override val channel: SocketChannel, private val handlers
     override lateinit var selectionKey: SelectionKey
     var eosDetected: Boolean = false
 
+    // 내부 event 처리를 위한 task & service
     private var task = EventLoopCoTask(::onEvent, handlers.idleTimeout, ::onIdle, ::onError)
     protected val service = CoroutineService().start(task)
 

@@ -3,7 +3,7 @@ import com.github.shanpark.buffers.ReadBuffer
 import com.github.shanpark.conet.*
 import java.net.DatagramPacket
 
-class StringCodec: TcpCodec {
+class StringCodec: CoTcpCodec {
     override suspend fun decode(conn: CoTcp, inObj: Any): Any? {
         val buffer = inObj as ReadBuffer
         return if (buffer.isReadable)
@@ -20,7 +20,7 @@ class StringCodec: TcpCodec {
     }
 }
 
-class ParenthesesCodec: TcpCodec {
+class ParenthesesCodec: CoTcpCodec {
     override suspend fun decode(conn: CoTcp, inObj: Any): Any? {
         val str = inObj as String
         return if (str.isNotBlank())
@@ -35,7 +35,7 @@ class ParenthesesCodec: TcpCodec {
     }
 }
 
-class UdpStringCodec: UdpCodec {
+class UdpStringCodec: CoUdpCodec {
     override suspend fun decode(conn: CoUdp, inObj: Any): Any? {
         val datagram = inObj as DatagramPacket
         return if (datagram.length > 0)

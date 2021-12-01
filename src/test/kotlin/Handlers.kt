@@ -2,8 +2,8 @@ import com.github.shanpark.buffers.Buffer
 import com.github.shanpark.buffers.ReadBuffer
 import com.github.shanpark.conet.CoTcp
 import com.github.shanpark.conet.CoUdp
-import com.github.shanpark.conet.TcpHandlers
-import com.github.shanpark.conet.UdpHandlers
+import com.github.shanpark.conet.CoTcpHandlers
+import com.github.shanpark.conet.CoUdpHandlers
 import com.github.shanpark.conet.codec.TlsCodec
 import kotlinx.coroutines.delay
 import java.lang.RuntimeException
@@ -16,7 +16,7 @@ import javax.net.ssl.SSLContext
  * 이렇게 구현하면 각 connection의 상태를 가질 수 있으며 모든 핸들러는 하나의 coroutine에서
  * 실행되므로 동기화 문제도 신경쓸 필요가 없음.
  */
-class EchoHandlers(tls: Boolean = false, sslContext: SSLContext? = null): TcpHandlers() {
+class EchoHandlers(tls: Boolean = false, sslContext: SSLContext? = null): CoTcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0) // EchoHandlers의 connection 갯수
     }
@@ -46,7 +46,7 @@ class EchoHandlers(tls: Boolean = false, sslContext: SSLContext? = null): TcpHan
     }
 }
 
-class TestHandlers(private val packetCount: Int, tls: Boolean = false, sslContext: SSLContext? = null): TcpHandlers() {
+class TestHandlers(private val packetCount: Int, tls: Boolean = false, sslContext: SSLContext? = null): CoTcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0)
     }
@@ -106,7 +106,7 @@ class TestHandlers(private val packetCount: Int, tls: Boolean = false, sslContex
  * 이렇게 구현하면 각 connection의 상태를 가질 수 있으며 모든 핸들러는 하나의 coroutine에서
  * 실행되므로 동기화 문제도 신경쓸 필요가 없음.
  */
-class UdpServerHandlers(private val count: Int): UdpHandlers() {
+class UdpServerHandlers(private val count: Int): CoUdpHandlers() {
     private var readCount = 0
 
     init {
@@ -142,7 +142,7 @@ class UdpServerHandlers(private val count: Int): UdpHandlers() {
     }
 }
 
-class UdpClientHandlers(private val count: Int): UdpHandlers() {
+class UdpClientHandlers(private val count: Int): CoUdpHandlers() {
     companion object {
         var connCount = AtomicInteger(0)
     }
@@ -186,7 +186,7 @@ class UdpClientHandlers(private val count: Int): UdpHandlers() {
     }
 }
 
-class TlsHandlers(sslContext: SSLContext): TcpHandlers() {
+class TlsHandlers(sslContext: SSLContext): CoTcpHandlers() {
     companion object {
         const val HOST = "www.daum.net"
     }
@@ -232,7 +232,7 @@ class TlsHandlers(sslContext: SSLContext): TcpHandlers() {
     }
 }
 
-class TlsServerHandlers(sslContext: SSLContext): TcpHandlers() {
+class TlsServerHandlers(sslContext: SSLContext): CoTcpHandlers() {
     private var totalReceived = 0
 
     init {
@@ -269,7 +269,7 @@ class TlsServerHandlers(sslContext: SSLContext): TcpHandlers() {
     }
 }
 
-class TlsEchoHandlers(sslContext: SSLContext): TcpHandlers() {
+class TlsEchoHandlers(sslContext: SSLContext): CoTcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0) // EchoHandlers의 connection 갯수
     }
@@ -298,7 +298,7 @@ class TlsEchoHandlers(sslContext: SSLContext): TcpHandlers() {
     }
 }
 
-class TlsTestHandlers(sslContext: SSLContext, private val packetCount: Int): TcpHandlers() {
+class TlsTestHandlers(sslContext: SSLContext, private val packetCount: Int): CoTcpHandlers() {
     companion object {
         var connCount = AtomicInteger(0)
     }

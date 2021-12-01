@@ -49,8 +49,8 @@ class CoNetTest {
     }
 
     @Test
-    @DisplayName("1000 client Test")
-    internal fun client1000() {
+    @DisplayName("100 client Test")
+    internal fun client100() {
         val CLIENT_MAX = 100
         val PACKET_COUNT = (CLIENT_MAX / 5)
 
@@ -100,8 +100,8 @@ class CoNetTest {
     }
 
     @Test
-    @DisplayName("TLS 1000 client Test")
-    internal fun tlsClient1000() {
+    @DisplayName("TLS 100 client Test")
+    internal fun tlsClient100() {
         val CLIENT_MAX = 100 // 4000개는 메모리 부족. 3000, 16ms, 4 정도가 적당
         val CONNECT_DELAY = 16L // 16ms delay
         val PACKET_COUNT = (CLIENT_MAX / 3.8).toInt()
@@ -164,6 +164,8 @@ class CoNetTest {
                 println("Some client not stopped. [Not Ended: ${clientList.size}]")
             else
                 println("All client stopped.")
+
+            Thread.sleep(100)
 
             assertThat(clientList.isEmpty()).isTrue
             assertThat(EchoHandlers.connCount.get()).isEqualTo(0)

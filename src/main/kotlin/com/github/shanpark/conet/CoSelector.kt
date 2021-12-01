@@ -20,6 +20,13 @@ internal object CoSelector {
         val selector: Selector by lazy { startSelector() }
         val registerRequestList: MutableList<RegisterRequest> = mutableListOf()
 
+        /**
+         * CoSelectable 객체를 selector에 등록한다.
+         * wrapper의 method이므로 내부에서만 호출된다.
+         *
+         * @param selectable 등록할 CoSelectable 객체.
+         * @param interestKeys 관심 operation key. SelectionKey에 정의된 OP_XXX 값들이다.
+         */
         fun register(selectable: CoSelectable, interestKeys: Int) {
             synchronized(registerRequestList) {
                 registerRequestList.add(RegisterRequest(selectable, interestKeys))
@@ -27,10 +34,24 @@ internal object CoSelector {
             selector.wakeup()
         }
 
+        /**
+         * CoSelectable 객체의 등록을 해제한다.
+         * wrapper의 method이므로 내부에서만 호출된다.
+         *
+         * @param selectable 등록 해제할 CoSelectable 객체.
+         */
         fun unregister(selectable: CoSelectable) {
             selectable.channel.keyFor(selector)?.cancel()
         }
 
+        /**
+         * selector가 select() 작업을 멈추고 즉시 반환되도록 한다.
+         * wrapper의 method이므로 내부에서만 호출된다.
+         *
+         * select() 중에는 register를 수행하면 안되며 이미 select()를 수행하고 있는 동안에 변경된 SelectionKey의
+         * 상태는 반영되지 않기 때문에 이런 작업을 하기 전에는 항상 wakeup()을 호출하여 select()를 멈추고 나서
+         * 다시 시작해야 한다.
+         */
         fun wakeup() {
             selector.wakeup()
         }

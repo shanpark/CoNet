@@ -3,7 +3,7 @@ package com.github.shanpark.conet.codec
 import com.github.shanpark.buffers.Buffer
 import com.github.shanpark.buffers.ReadBuffer
 import com.github.shanpark.conet.CoTcp
-import com.github.shanpark.conet.TcpCodec
+import com.github.shanpark.conet.CoTcpCodec
 import kotlinx.coroutines.*
 import java.nio.ByteBuffer
 import javax.net.ssl.SSLContext
@@ -19,12 +19,14 @@ import javax.net.ssl.SSLException
  *
  * non-blocking socket을 이용하기 때문에 내부에 loop를 돌면서 데이터를 기다리거나 버퍼의 공간이 생길 때까지
  * 기다리는 구현이 있다. 이 때도 coroutine을 잡고 있기 보다는 yield()를 호출하여 다른 coroutine에게 양보하도록
- * 구현되어야 한다.
+ * 구현되어 있으므로 coroutine이 thread를 붙들고 있는 경우는 없다.
  *
+ * TlsCodec의 모든 method는 CoTcp 객체의 coroutine에서 수행되기 때문에 동시에(병렬) 실행되는 코드는 없다. 따라서
+ * 동기화 문제 같은 Concurrency 문제는 신경쓰지 않아도 된다.
  * 참고로 handshaking 중에는 inbound든 outbound든 app 데이터가 전혀 사용(consume)되거나 생성되지 않는다.
  */
 @Suppress("BlockingMethodInNonBlockingContext")
-class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
+class TlsCodec(sslContext: SSLContext, clientMode: Boolean): CoTcpCodec {
 
     companion object {
         private val EMPTY_BUFFER = ByteBuffer.wrap(ByteArray(0))
@@ -32,7 +34,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
     private val sslEngine: SSLEngine = sslContext.createSSLEngine()
     private var isHandshaking: Boolean = false // handshaking 진행중 표시
-    private var isShutingDown: Boolean = false // shutdown 진행중 표시
+    private var isShuttingDown: Boolean = false // shutdown 진행중 표시
 
     // outbound 시에 outAppBuffer -> wrap() -> outNetBuffer 순서로 데이터가 흘러간다.
     private var outAppBuffer: ByteBuffer = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
@@ -49,10 +51,21 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         sslEngine.useClientMode = clientMode
     }
 
+    /**
+     * net data -> app data로의 변환을 수행.
+     *
+     * @param conn CoTcp 연결 객체.
+     * @param inObj Any 타입이지만 실상은 항상 ReadBuffer 타입이다.
+     *
+     * @return app data로 decoding된 data를 답은 ReadBuffer 객체. 다음 코덱에서 사용되지 않으면 계속 누적되어 보괸되며
+     *         다음 codec chain process에서 다시 전달될 것이다.
+     */
     override suspend fun decode(conn: CoTcp, inObj: Any): Any? {
         val buffer = inObj as ReadBuffer
         if (!buffer.isReadable) // 추가 데이터가 없다면
             return null // codec chain을 진행할 필요가 없다.
+
+        inBuffer.compact() // 다음 codec에서 사용 후 compact()를 수행하지 않기 때문에 항상 decoding을 시작하기 전에 해주는 게 맞다.
 
         while (true) {
             buffer.read(inNetBuffer) // net buffer로 옮김. inNetBuffer의 크기만큼만 읽어서 unwrap을 시도한다. 나머지는 다음 loop에서 처리.
@@ -124,10 +137,18 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
         return inBuffer
     }
 
+    /**
+     * app data -> net data 로의 변환을 수행.
+     *
+     * @param conn CoTcp 연결 객체
+     * @param outObj 최종적으로 peer에게 전달될 데이터를 담은 ReadBuffer 객체.
+     *
+     * @return SSLEngine에 의하여 encoding된 data를 담은 ReadBuffer 객체. 최종적으로 socket을 통해서 peer에게 전달될 data를 담는다.
+     */
     override suspend fun encode(conn: CoTcp, outObj: Any): Any {
         val buffer = outObj as ReadBuffer
 
-        outBuffer.clear()
+        outBuffer.clear() // outbound data는 누적이 되지 않는다. 항상 clear()하고 시작하면 된다.
         while (true) {
             buffer.read(outAppBuffer) // outAppBuffer 크기만큼만 읽어온다. 나머지는 그 다음 loop에서 시도할 것이다.
 
@@ -382,13 +403,13 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
     private suspend fun doUnwrapForHandshake(conn: CoTcp): SSLEngineResult {
         var sslEngineResult: SSLEngineResult
 
-        // inNetBuffer에는 이미 data가 있을 수도 있다. 그런 경우 1 바이트도 못 읽고 지나가는 경우가 있는 데 정상이다.
+        // inNetBuffer에는 이미 이전에 쓰고남은 data가 있을 수도 있다. 그런 경우 1 바이트도 못 읽더라도 정상이다.
         if (conn.channel.read(inNetBuffer) < 0) {
             sslEngine.closeInbound()
             return SSLEngineResult(SSLEngineResult.Status.CLOSED, sslEngine.handshakeStatus, 0, 0)
         }
 
-        HANDSHAKE_LOOP@
+        UNWRAP_LOOP@
         while (true) {
             inNetBuffer.flip()
             sslEngineResult = sslEngine.unwrap(inNetBuffer, inAppBuffer)
@@ -447,8 +468,8 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
      * linux에서는 예상대로 동작한다.
      */
     private suspend fun doShutdown(conn: CoTcp) {
-        if (!isShutingDown) {
-            isShutingDown = true
+        if (!isShuttingDown) { // 재귀 호출 되는 경우 무시
+            isShuttingDown = true
 
             sslEngine.closeOutbound() // 여기서는 closeOutbound()만 해준다. closeInbound()는 EoS가 감지된 쪽에서 해준다.
 
@@ -468,7 +489,7 @@ class TlsCodec(sslContext: SSLContext, clientMode: Boolean): TcpCodec {
 
             // Close transport
             conn.close() // 직접 닫지 않고 conn으로 요청한다.
-            isShutingDown = false
+            isShuttingDown = false
         }
     }
 

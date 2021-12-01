@@ -85,15 +85,15 @@ interface CoCodec<CONN> {
 }
 
 /**
- * TcpCodec 코덱은
+ * CoTcpCodec 코덱은
  * - inbound - codec chain의 첫 번째 codec의 decode함수는 항상 ReadBuffer 객체를 받는다.
  * - outbound - codec chain의 첫 번째 codec의 encode 함수는 반드시 ReadBuffer 객체를 반환해야 한다.
  */
-typealias TcpCodec = CoCodec<CoTcp>
+typealias CoTcpCodec = CoCodec<CoTcp>
 
 /**
- * UdpCodec 코덱은
+ * CoUdpCodec 코덱은
  * - inbound - codec chain의 첫 번째 codec의 decode함수는 항상 DatagramPacket 객체를 받는다.
  * - outbound - codec chain의 첫 번째 codec의 encode 함수는 반드시 DatagramPacket 객체를 반환해야 한다.
  */
-typealias UdpCodec = CoCodec<CoUdp>
+typealias CoUdpCodec = CoCodec<CoUdp>

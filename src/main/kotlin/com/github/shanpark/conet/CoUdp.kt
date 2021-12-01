@@ -16,16 +16,17 @@ import java.nio.channels.SelectionKey
 
 class CoUdp(private val handlers: CoHandlers<CoUdp>): CoSelectable {
 
+    override val channel: DatagramChannel = DatagramChannel.open()
+
+    override lateinit var selectionKey: SelectionKey
+
     /**
      * send() 호출 시 target의 주소와 데이터를 모두 담아서 SEND 이벤트를 보낼 때 parameter로 같이 보내기 위해
      * 사용되는 클래스이다.
      */
     private class SendData(val obj: Any, val peer: SocketAddress?)
 
-    override val channel: DatagramChannel = DatagramChannel.open()
-
-    override lateinit var selectionKey: SelectionKey
-
+    // 내부 event 처리를 위한 task & service
     private var task = EventLoopCoTask(::onEvent, handlers.idleTimeout, ::onIdle, ::onError)
     private val service = CoroutineService().start(task)
 

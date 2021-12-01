@@ -126,7 +126,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.shanpark:conet:0.0.3'
+    implementation 'com.github.shanpark:conet:0.0.4'
 }
 ```
 
@@ -139,6 +139,6 @@ repositories {
 }
 
 dependencies {
-    implementation('com.github.shanpark:conet:0.0.3')
+    implementation('com.github.shanpark:conet:0.0.4')
 }
 ```

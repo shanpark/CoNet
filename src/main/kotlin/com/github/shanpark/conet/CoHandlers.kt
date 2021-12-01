@@ -104,5 +104,5 @@ open class CoHandlers<CONN> {
     open suspend fun onIdle(conn: CONN) {}
 }
 
-typealias TcpHandlers = CoHandlers<CoTcp>
-typealias UdpHandlers = CoHandlers<CoUdp>
+typealias CoTcpHandlers = CoHandlers<CoTcp>
+typealias CoUdpHandlers = CoHandlers<CoUdp>
